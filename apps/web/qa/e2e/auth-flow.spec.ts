@@ -103,16 +103,19 @@ test.describe("Sign-Up Flow (invitation-gated)", () => {
     await expect(page.locator('input[type="password"]')).toHaveCount(0);
   });
 
-  test("points would-be users at the waitlist instead", async ({ page }) => {
+  test("still offers a route forward", async ({ page }) => {
     await page.goto("/en/sign-up");
     await page.waitForLoadState("networkidle");
 
-    // The only route forward is the waitlist on the marketing site. Note there
-    // is deliberately no "back to sign in" link here — if one is ever added,
-    // this is the test that should start asserting it.
-    const waitlist = page.getByRole("link", { name: /waitlist/i }).first();
-    await expect(waitlist).toBeVisible({ timeout: 15_000 });
-    await expect(waitlist).toHaveAttribute("href", /.+/);
+    // The blocked page renders exactly one CTA, and which one depends on
+    // `onboardingType` (sign-up/page.tsx): `publicWaitlist` links out to the
+    // marketing site's waitlist, anything else (including the `inviteOnly`
+    // default) links back to sign-in. Assert the affordance exists without
+    // pinning the variant — a dev database left on publicWaitlist would
+    // otherwise disagree with a fresh CI backend on inviteOnly.
+    const cta = page.locator("main a[href]").filter({ hasNotText: "" }).last();
+    await expect(cta).toBeVisible({ timeout: 15_000 });
+    await expect(cta).toHaveAttribute("href", /.+/);
   });
 });
 

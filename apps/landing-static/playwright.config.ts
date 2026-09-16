@@ -30,9 +30,15 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npx serve out -l 3004",
+    // `npx serve` downloads the package on a cold runner, which blew the old
+    // 30s timeout. serve is now a devDependency, so use the local binary.
+    command: "./node_modules/.bin/serve out -l 3004",
+    // Playwright discards webServer stdout by default, which turns any CI
+    // boot failure into a bare "Exit code: 1" with no diagnostics.
+    stdout: "pipe",
+    stderr: "pipe",
     url: "http://localhost:3004",
     reuseExistingServer: !process.env.CI,
-    timeout: 30 * 1000,
+    timeout: 120 * 1000,
   },
 });

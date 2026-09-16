@@ -291,8 +291,14 @@ wrong test:
 - **`listSessions()` failures were silent.** It resolves with `{ data, error }` rather than
   throwing, and the code checked only `result.data`. On an API failure the page sat in its
   loading skeleton forever with no message. Fixed in both copies of the sessions UI.
-- The sign-up page offers **no route back to sign-in** — only "Join waitlist". Left as-is
-  and recorded in the test, since changing navigation is a product call.
+- ~~The sign-up page offers no route back to sign-in~~ — **this was wrong**, and the first
+  real CI run caught it. The blocked page's CTA is conditional on `onboardingType`:
+  `publicWaitlist` links out to the marketing waitlist, and anything else — including the
+  `inviteOnly` default — links back to sign-in. The local dev database had been left on
+  `publicWaitlist`, so only the waitlist variant was ever observed. The test now asserts
+  the affordance exists without pinning the variant. A reminder that a dev database is not
+  a fresh one, and that asserting on locally-observed state is how environment-dependent
+  tests get written.
 
 Some tests were retargeted rather than repaired, because what they asserted no longer
 exists: the sign-up XSS test now exercises forgot-password, the only other unauthenticated

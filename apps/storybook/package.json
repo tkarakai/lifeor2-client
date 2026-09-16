@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --port 3003",
+    "prebuild": "../../scripts/copy-shared-assets.sh",
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --max-warnings 0",

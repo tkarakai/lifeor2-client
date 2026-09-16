@@ -1,25 +1,46 @@
 name: "Setup Playwright"
 description: "Install Playwright Chromium browser with caching"
 
+inputs:
+  working-directory:
+    description: >-
+      Directory holding the @playwright/test dependency for the app under test.
+      Required: there is no playwright binary at the repo root, so running the
+      installer from there makes bunx fetch the LATEST playwright from npm and
+      download a browser build the pinned version cannot use.
+    required: true
+
 runs:
   using: "composite"
   steps:
+    - name: Resolve Playwright version
+      id: pw
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: echo "version=$(./node_modules/.bin/playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
     - name: Cache Playwright browsers
       if: ${{ !env.ACT }}
       uses: actions/cache@v4
       id: playwright-cache
       with:
         path: ~/.cache/ms-playwright
-        key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('**/bun.lockb') }}
+        # Keyed on the resolved Playwright version: browser builds are tied to it,
+        # and a stale cache surfaces as "Executable doesn't exist at ...".
+        # (Previously keyed on bun.lockb, which no longer exists — hashFiles
+        # returned empty, so the key was constant and never matched.)
+        key: ${{ runner.os }}-playwright-chromium-${{ steps.pw.outputs.version }}
         restore-keys: |
           ${{ runner.os }}-playwright-chromium-
 
     - name: Install Playwright browsers
       if: ${{ steps.playwright-cache.outputs.cache-hit != 'true' || env.ACT }}
       shell: bash
-      run: bunx playwright install --with-deps chromium
+      working-directory: ${{ inputs.working-directory }}
+      run: ./node_modules/.bin/playwright install --with-deps chromium
 
     - name: Install Playwright deps (if cached)
       if: ${{ steps.playwright-cache.outputs.cache-hit == 'true' && !env.ACT }}
       shell: bash
-      run: bunx playwright install-deps chromium
+      working-directory: ${{ inputs.working-directory }}
+      run: ./node_modules/.bin/playwright install-deps chromium

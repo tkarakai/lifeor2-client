@@ -1,4 +1,6 @@
-import { test, expect, type ConsoleMessage } from "@playwright/test";
+import { test, expect } from "@playwright/test";
+
+import { fillStable } from "./helpers/auth";
 
 test.describe("Admin Sign-In Page", () => {
   test("loads and displays the correct title", async ({ page }) => {
@@ -7,14 +9,26 @@ test.describe("Admin Sign-In Page", () => {
   });
 
   test("displays the sign-in form", async ({ page }) => {
+    // Two-step form: the email step comes first and #password does not exist
+    // until it is submitted, so assert each step in turn.
     await page.goto("/");
     await expect(page.getByLabel("Email")).toBeVisible();
-    await expect(page.getByLabel("Password")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+    await expect(page.locator("#password")).toHaveCount(0);
+
+    await fillStable(page, "#email", "nobody@e2e.local");
+    await page.locator('form:has(#email) button[type="submit"]').click();
+
+    await expect(page.locator("#password")).toBeVisible({ timeout: 15_000 });
+    await expect(
+      page.locator('form:has(#password) button[type="submit"]'),
+    ).toBeVisible();
   });
 
   test("has no console errors on load", async ({ page }) => {
-    const consoleErrors: ConsoleMessage[] = [];
+    // Strings, not ConsoleMessage objects: a failure on the object array
+    // prints an unreadable dump of Playwright internals, which makes a CI
+    // failure impossible to diagnose without re-running locally.
+    const consoleErrors: string[] = [];
 
     const isExpectedError = (text: string, locationUrl: string): boolean => {
       const isAuthSessionUrl = /\/api\/auth\/get-session/.test(locationUrl);
@@ -37,7 +51,7 @@ test.describe("Admin Sign-In Page", () => {
         const text = message.text();
         const locationUrl = message.location().url;
         if (!isExpectedError(text, locationUrl)) {
-          consoleErrors.push(message);
+          consoleErrors.push(`${message.text()} @ ${message.location().url}`);
         }
       }
     });

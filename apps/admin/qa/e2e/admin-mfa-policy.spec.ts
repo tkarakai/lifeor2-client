@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+import { signInAsAdmin } from "./helpers/auth";
+
 /**
  * Admin MFA Policy E2E Tests
  *
@@ -16,32 +18,19 @@ test.describe("Admin Security / MFA Policy Page", () => {
     await expect(page).toHaveURL(/\/sign-in/);
   });
 
-  test("security page loads when authenticated", async ({ page, context }) => {
-    await context.addCookies([
-      {
-        name: "better-auth.session_token",
-        value: "admin-session-token",
-        domain: "localhost",
-        path: "/",
-      },
-    ]);
+  test("security page loads when authenticated", async ({ page }) => {
+    await signInAsAdmin(page);
 
     await page.goto("/configure/security");
     // Proxy allows access with a cookie; page renders (even if backend rejects fake token)
   });
 
-  test("security page displays MFA policy card heading", async ({ page, context }) => {
-    await context.addCookies([
-      {
-        name: "better-auth.session_token",
-        value: "admin-session-token",
-        domain: "localhost",
-        path: "/",
-      },
-    ]);
+  test("security page displays MFA policy card heading", async ({ page }) => {
+    await signInAsAdmin(page);
 
+    // Not networkidle: Convex's live websocket keeps the network busy once
+    // authenticated, so that wait never resolves.
     await page.goto("/configure/security");
-    await page.waitForLoadState("networkidle");
 
     const heading = page.locator("h1");
     if (await heading.isVisible()) {

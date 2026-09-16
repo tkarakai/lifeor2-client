@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+import { signInAsAdmin } from "./helpers/auth";
+
 /**
  * Admin User Sessions E2E Tests
  *
@@ -20,37 +22,24 @@ test.describe("Admin User Sessions", () => {
     await expect(page).toHaveURL(/\/sign-in/);
   });
 
-  test("legacy sessions route redirects to users when authenticated", async ({ page, context }) => {
-    // Set session cookie to pass proxy auth check
-    await context.addCookies([
-      {
-        name: "better-auth.session_token",
-        value: "admin-session-token",
-        domain: "localhost",
-        path: "/",
-      },
-    ]);
+  test("legacy sessions route redirects to users when authenticated", async ({ page }) => {
+    await signInAsAdmin(page);
 
     await page.goto("/dashboard/sessions");
     await expect(page).toHaveURL(/\/manage\/users/);
   });
 
-  test("users page has user search input", async ({ page, context }) => {
-    await context.addCookies([
-      {
-        name: "better-auth.session_token",
-        value: "admin-session-token",
-        domain: "localhost",
-        path: "/",
-      },
-    ]);
+  test("users page has user search input", async ({ page }) => {
+    await signInAsAdmin(page);
 
+    // Not networkidle: once signed in, Convex holds a live websocket open and
+    // the network never goes idle, so the wait burns the whole test timeout.
     await page.goto("/manage/users");
-    await page.waitForLoadState("networkidle");
 
-    const searchInput = page.locator('input[placeholder*="Search"]');
-    if (await searchInput.isVisible()) {
-      await expect(searchInput).toBeVisible();
-    }
+    // Assert unconditionally — the old `if (visible)` guard meant this test
+    // could not fail, and it was running against /sign-in anyway.
+    await expect(page.locator('input[placeholder*="Search"]')).toBeVisible({
+      timeout: 20_000,
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { test, expect, type ConsoleMessage } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 
 /**
  * Playwright E2E tests for the web app.
@@ -13,7 +13,10 @@ test.describe("Homepage", () => {
   });
 
   test("has no console errors on load", async ({ page }) => {
-    const consoleErrors: ConsoleMessage[] = [];
+    // Strings, not ConsoleMessage objects: a failure on the object array
+    // prints an unreadable dump of Playwright internals, which makes a CI
+    // failure impossible to diagnose without re-running locally.
+    const consoleErrors: string[] = [];
 
     const isExpectedError = (text: string, locationUrl: string): boolean => {
       const isAuthSessionUrl = /\/api\/auth\/get-session/.test(locationUrl);
@@ -36,7 +39,7 @@ test.describe("Homepage", () => {
         const text = message.text();
         const locationUrl = message.location().url;
         if (!isExpectedError(text, locationUrl)) {
-          consoleErrors.push(message);
+          consoleErrors.push(`${message.text()} @ ${message.location().url}`);
         }
       }
     });

@@ -1,4 +1,4 @@
-import { test, expect, type ConsoleMessage } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 
 test.describe("Landing Homepage", () => {
   test("loads and displays the correct title", async ({ page }) => {
@@ -13,11 +13,14 @@ test.describe("Landing Homepage", () => {
   });
 
   test("has no console errors on load", async ({ page }) => {
-    const consoleErrors: ConsoleMessage[] = [];
+    // Strings, not ConsoleMessage objects: a failure on the object array
+    // prints an unreadable dump of Playwright internals, which makes a CI
+    // failure impossible to diagnose without re-running locally.
+    const consoleErrors: string[] = [];
 
     page.on("console", (message) => {
       if (message.type() === "error") {
-        consoleErrors.push(message);
+        consoleErrors.push(`${message.text()} @ ${message.location().url}`);
       }
     });
 

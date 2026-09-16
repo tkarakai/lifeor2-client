@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack --port 3004",
+    "prebuild": "../../scripts/copy-shared-assets.sh",
     "build": "next build",
     "start": "npx serve out",
     "lint": "eslint . --max-warnings 0",
@@ -32,6 +33,7 @@
     "@axe-core/playwright": "^4.10.0",
     "@playwright/test": "^1.58.0",
     "@size-limit/file": "^11.0.0",
+    "serve": "^14.2.6",
     "@tailwindcss/postcss": "^4.1.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

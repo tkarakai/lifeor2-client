@@ -119,6 +119,14 @@ else
 fi
 
 # ============================================================
+# SHARED ASSETS
+# ============================================================
+# `bun run dev` gets these via its predev hook, but Playwright's webServer
+# invokes this script directly — so without this, CI serves a site with no
+# icon.svg or favicon.ico and any "no console errors" test fails on 404s.
+"$SCRIPT_DIR/copy-shared-assets.sh"
+
+# ============================================================
 # ENSURE BRANCH TRACKING (push protection)
 # ============================================================
 if [ "$NON_INTERACTIVE" = false ]; then
@@ -258,16 +266,41 @@ update_app_env_urls() {
 }
 
 # Check if esbuild binary is functional (Convex uses it to bundle functions)
+# Map the host to esbuild's platform package name. Hardcoding darwin-arm64 here
+# made the pre-flight check pass on every developer Mac and fail on every Linux
+# CI runner, which is why no E2E job ever got past webServer startup.
+esbuild_platform() {
+    local os arch
+    os=$(uname -s)
+    arch=$(uname -m)
+
+    case "$os" in
+        Darwin) os="darwin" ;;
+        Linux)  os="linux" ;;
+        *)      os="unknown" ;;
+    esac
+
+    case "$arch" in
+        arm64|aarch64) arch="arm64" ;;
+        x86_64|amd64)  arch="x64" ;;
+        *)             arch="unknown" ;;
+    esac
+
+    echo "${os}-${arch}"
+}
+
 check_esbuild() {
     local esbuild_bin=""
+    local platform
+    platform=$(esbuild_platform)
 
     # 1. Direct platform binary (classic node_modules layout)
-    if [ -x "$PROJECT_DIR/node_modules/@esbuild/darwin-arm64/bin/esbuild" ]; then
-        esbuild_bin="$PROJECT_DIR/node_modules/@esbuild/darwin-arm64/bin/esbuild"
-    # 2. Bun's deduped layout: node_modules/.bun/@esbuild+darwin-arm64@*/...
+    if [ -x "$PROJECT_DIR/node_modules/@esbuild/$platform/bin/esbuild" ]; then
+        esbuild_bin="$PROJECT_DIR/node_modules/@esbuild/$platform/bin/esbuild"
+    # 2. Bun's deduped layout: node_modules/.bun/@esbuild+<platform>@*/...
     else
         local bun_esbuild
-        bun_esbuild=$(ls "$PROJECT_DIR"/node_modules/.bun/@esbuild+darwin-arm64@*/node_modules/@esbuild/darwin-arm64/bin/esbuild 2>/dev/null | head -1)
+        bun_esbuild=$(ls "$PROJECT_DIR"/node_modules/.bun/@esbuild+"$platform"@*/node_modules/@esbuild/"$platform"/bin/esbuild 2>/dev/null | head -1)
         if [ -x "$bun_esbuild" ]; then
             esbuild_bin="$bun_esbuild"
         fi
@@ -896,10 +929,28 @@ start_next_app() {
         update_env_var "$app_dir/.env.local" "NEXT_PUBLIC_SITE_URL" "http://localhost:$next_port"
     fi
 
-    # Sync SITE_URL to Convex if this is the web app
-    if [ "$app_name" = "web" ] && [ "$NEED_CONVEX" = true ] && [ -n "$next_port" ]; then
-        if (cd "$PROJECT_DIR/packages/backend" && bunx convex env set SITE_URL "http://localhost:$next_port" > /dev/null 2>&1); then
-            echo -e "  ${GREEN}✔${NC} SITE_URL synced to Convex"
+    # Sync this app's origin into Convex's SITE_URL.
+    #
+    # SITE_URL is a comma-separated list; the backend splits it and uses every
+    # entry as a trusted origin (see getSiteUrls() in convex/auth.ts). This used
+    # to run for the web app only, so starting landing on its own left its
+    # origin untrusted and every browser call to the Convex HTTP router failed
+    # CORS -- which is exactly how it failed the moment E2E first ran in CI.
+    if [ "$NEED_CONVEX" = true ] && [ -n "$next_port" ]; then
+        local app_origin="http://localhost:$next_port"
+        local existing_site_url
+        existing_site_url=$(cd "$PROJECT_DIR/packages/backend" && bunx convex env get SITE_URL 2>/dev/null | tr -d '\r\n')
+
+        local merged_site_url="$app_origin"
+        if [ -n "$existing_site_url" ] && [ "$existing_site_url" != "$app_origin" ]; then
+            case ",$existing_site_url," in
+                *",$app_origin,"*) merged_site_url="$existing_site_url" ;;
+                *) merged_site_url="$app_origin,$existing_site_url" ;;
+            esac
+        fi
+
+        if (cd "$PROJECT_DIR/packages/backend" && bunx convex env set SITE_URL "$merged_site_url" > /dev/null 2>&1); then
+            echo -e "  ${GREEN}✔${NC} SITE_URL synced to Convex ($merged_site_url)"
         else
             echo -e "  ${YELLOW}⚠${NC} Failed to sync SITE_URL to Convex"
         fi

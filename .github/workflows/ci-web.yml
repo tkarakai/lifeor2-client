@@ -166,11 +166,30 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-playwright
+        with:
+          working-directory: apps/web
+
+      # `convex dev` in anonymous mode downloads its local backend binary from
+      # GitHub releases UNAUTHENTICATED. Four shards booting at once hit
+      # "403 API rate limit exceeded" and the webServer never starts. Cache the
+      # binary so at most the first run downloads it.
+      - name: Cache Convex local backend
+        uses: actions/cache@v4
+        with:
+          path: ~/.convex
+          key: ${{ runner.os }}-convex-backend-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-convex-backend-
 
       # Each shard boots its own Convex backend via the Playwright webServer,
       # so auth rate-limit counters stay per-shard and workers stay at 1.
       - name: Run Playwright tests
-        run: cd apps/web && bunx playwright test --project=chromium --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+        run: |
+          # Stagger the shards: if the cache missed, this keeps four concurrent
+          # Convex backend downloads from hitting GitHub's unauthenticated limit
+          # at the same instant.
+          sleep $(( (${{ matrix.shard }} - 1) * 20 ))
+          cd apps/web && bunx playwright test --project=chromium --shard=${{ matrix.shard }}/${{ strategy.job-total }}
         env:
           CI: true
 

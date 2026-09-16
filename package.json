@@ -23,7 +23,7 @@
     "dev:nuke-all": "./scripts/dev-nuke-all.sh",
     "dev:status": "./scripts/dev-status.sh",
     "copy-assets": "./scripts/copy-shared-assets.sh",
-    "prebuild": "./scripts/ensure-app-env.sh --quiet",
+    "prebuild": "./scripts/ensure-app-env.sh --quiet && ./scripts/copy-shared-assets.sh",
     "build": "turbo build",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",

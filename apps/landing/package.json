@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack --port 3000",
+    "prebuild": "../../scripts/copy-shared-assets.sh",
     "build": "next build",
     "start": "npx serve out",
     "lint": "eslint . --max-warnings 0",

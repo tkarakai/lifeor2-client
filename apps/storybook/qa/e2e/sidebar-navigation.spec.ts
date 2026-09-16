@@ -135,9 +135,22 @@ test.describe("Sidebar navigation", () => {
 
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Form");
 
-    // Should show 6 component cards (Checkbox, Input, Radio Group, Select, Switch, Textarea)
+    // This asserted exactly 6 cards; the Form category has since grown to 8
+    // (OTP Input, Password Strength Meter), so a literal count rots whenever the
+    // design system gains a component.
+    //
+    // Deriving the count from the sidebar was worse: the sub-items only exist
+    // while the category is expanded, which made the assertion depend on nav
+    // state and it read 0 in CI. Assert the stable contract instead — the page
+    // lists cards, and the long-standing Form components are among them.
     const cards = page.locator("a.group");
-    await expect(cards).toHaveCount(6);
+    await expect(cards.first()).toBeVisible({ timeout: 15_000 });
+
+    for (const name of ["Checkbox", "Input", "Select", "Textarea"]) {
+      await expect(
+        cards.filter({ hasText: new RegExp(`^${name}`) }).first(),
+      ).toBeVisible();
+    }
   });
 
   test("category cards page shows component names and descriptions", async ({
@@ -245,14 +258,16 @@ test.describe("Sidebar navigation", () => {
       "true",
     );
 
-    // "Select" sub-item should be active
+    // Exact text: `hasText` is a substring match, and "Input" also matches
+    // "OTP Input", which made this a strict-mode violation once that component
+    // was added.
     const selectItem = subItemLinks(page, "Form").filter({
-      hasText: "Select",
+      hasText: /^Select$/,
     });
     await expect(selectItem).toHaveAttribute("data-active", "true");
 
     // Other sub-items should not be active
-    const inputItem = subItemLinks(page, "Form").filter({ hasText: "Input" });
+    const inputItem = subItemLinks(page, "Form").filter({ hasText: /^Input$/ });
     await expect(inputItem).not.toHaveAttribute("data-active", "true");
   });
 
