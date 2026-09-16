@@ -1,77 +1,46 @@
 import { expect, test } from "@playwright/test";
 
 import {
-  SEED_USER,
-  openSecurityTab,
-  fillStable,
   expectSignedIn,
+  fillStable,
   markConvexLogPosition,
+  openSecurityTab,
   signIn,
   signOut,
   submitEmailStep,
   submitPassword,
   throttleSignIn,
-  toRelativeUrl,
   waitForAuthEmail,
 } from "./helpers/auth";
+import { createDisposableUser, disposablePassword } from "./helpers/fixtures";
 
 /**
  * Password Lifecycle E2E Tests
  *
  * Covers changing a password while signed in, and recovering one while signed
- * out via the emailed reset link. Both paths mutate the shared seed account, so
- * each test restores the original password before finishing.
+ * out via the emailed reset link.
+ *
+ * Every test mints its own throwaway account, so nothing here can strand shared
+ * state — an earlier revision shared the dev-seed user and a mid-flow failure
+ * would leave it on a temporary password, cascading into every later spec.
  *
  * The reset link is read from `.convex-dev.log`: with no `RESEND_API_KEY`,
  * `sendAuthEmail` logs the URL to the Convex server console, which
  * `dev-start.sh` redirects to that file.
- *
- * QUARANTINED (`describe.fixme` — reported as skipped, CI stays green).
- *
- * These mutate the password on the single shared dev-seed account. When a test
- * fails mid-flow the restore in `afterEach` cannot run, the account is left on
- * the temporary password, and every later spec fails for an unrelated reason —
- * observed in practice, cascading into `auth-session.spec.ts`.
- *
- * Unblocking them needs a dev-only backend function that mints a disposable
- * user per spec. Tests cannot self-register: `onboardingType` defaults to
- * `inviteOnly`.
  */
-test.describe.configure({ mode: "serial", timeout: 120_000 });
+test.describe.configure({ timeout: 120_000 });
 
-const TEMP_PASSWORD = "Pw-e2e-temp-9142!x";
-
-test.describe.fixme("Change password while signed in", () => {
-  test.afterEach(async ({ page }) => {
-    // Best-effort restore so a mid-test failure cannot strand the seed account
-    // on the temporary password and break every later spec.
-    await page.context().clearCookies();
-    try {
-      await throttleSignIn();
-      await submitEmailStep(page, SEED_USER.email);
-      await submitPassword(page, TEMP_PASSWORD);
-      await page.waitForURL(/\/dashboard/, { timeout: 10_000 });
-    } catch {
-      return; // Already on the original password — nothing to undo.
-    }
-
-    await openSecurityTab(page, "password");
-    await fillStable(page, "#current-password", TEMP_PASSWORD);
-    await fillStable(page, "#new-password", SEED_USER.password);
-    await fillStable(page, "#confirm-password", SEED_USER.password);
-    await page.locator('form:has(#current-password) button[type="submit"]').click();
-    await expect(page.getByText(/updated|changed|success/i).first()).toBeVisible({
-      timeout: 15_000,
-    });
-  });
-
+test.describe("Change password while signed in", () => {
   test("changes the password and the new one signs in", async ({ page }) => {
-    await signIn(page);
+    const user = await createDisposableUser();
+    const newPassword = disposablePassword();
+
+    await signIn(page, user.email, user.password);
     await openSecurityTab(page, "password");
 
-    await fillStable(page, "#current-password", SEED_USER.password);
-    await fillStable(page, "#new-password", TEMP_PASSWORD);
-    await fillStable(page, "#confirm-password", TEMP_PASSWORD);
+    await fillStable(page, "#current-password", user.password);
+    await fillStable(page, "#new-password", newPassword);
+    await fillStable(page, "#confirm-password", newPassword);
     await page.locator('form:has(#current-password) button[type="submit"]').click();
 
     await expect(page.getByText(/updated|changed|success/i).first()).toBeVisible({
@@ -82,109 +51,182 @@ test.describe.fixme("Change password while signed in", () => {
 
     // The old password must stop working...
     await throttleSignIn();
-    await submitEmailStep(page, SEED_USER.email);
-    await submitPassword(page, SEED_USER.password);
+    await submitEmailStep(page, user.email);
+    await submitPassword(page, user.password);
     await expect(page.getByText("Invalid email or password")).toBeVisible({ timeout: 15_000 });
 
     // ...and the new one must work.
     await page.context().clearCookies();
     await throttleSignIn();
-    await submitEmailStep(page, SEED_USER.email);
-    await submitPassword(page, TEMP_PASSWORD);
+    await submitEmailStep(page, user.email);
+    await submitPassword(page, newPassword);
     await expectSignedIn(page);
   });
 
   test("rejects a change when the current password is wrong", async ({ page }) => {
-    await signIn(page);
+    const user = await createDisposableUser();
+
+    await signIn(page, user.email, user.password);
     await openSecurityTab(page, "password");
 
-    await fillStable(page, "#current-password", "not-the-current-password");
-    await fillStable(page, "#new-password", TEMP_PASSWORD);
-    await fillStable(page, "#confirm-password", TEMP_PASSWORD);
+    const attempted = disposablePassword();
+    await fillStable(page, "#current-password", disposablePassword());
+    await fillStable(page, "#new-password", attempted);
+    await fillStable(page, "#confirm-password", attempted);
     await page.locator('form:has(#current-password) button[type="submit"]').click();
 
     await expect(page.getByText(/incorrect|invalid|wrong/i).first()).toBeVisible({
       timeout: 15_000,
     });
 
-    // The real password must still work, proving nothing changed.
+    // The original password must still work, proving nothing changed.
     await signOut(page);
-    await signIn(page);
-  });
-});
-
-test.describe.fixme("Password reset via emailed link", () => {
-  test("resets the password from the emailed link and signs in with it", async ({ page }) => {
-    const logOffset = markConvexLogPosition();
-
-    await page.goto("/en/forgot-password");
-    await fillStable(page, "#forgot-email", SEED_USER.email);
-    await page.locator('form:has(#forgot-email) button[type="submit"]').click();
-
-    // The response is deliberately generic to avoid email enumeration, so the
-    // log is the only place the link surfaces.
-    const resetUrl = await waitForAuthEmail("reset-password", logOffset);
-    expect(resetUrl).toContain("reset-password");
-
-    await page.goto(toRelativeUrl(resetUrl));
-    await fillStable(page, "#new-password", TEMP_PASSWORD);
-    await fillStable(page, "#confirm-new-password", TEMP_PASSWORD);
-    await page.locator('form:has(#new-password) button[type="submit"]').click();
-
-    await page.waitForURL(/\/sign-in|\/dashboard/, { timeout: 20_000 });
-
-    // Sign in with the reset password.
-    await page.context().clearCookies();
-    await throttleSignIn();
-    await submitEmailStep(page, SEED_USER.email);
-    await submitPassword(page, TEMP_PASSWORD);
+    await signIn(page, user.email, user.password);
     await expectSignedIn(page);
+  });
 
-    // Restore the seeded password for every later spec.
+  test("revoking other sessions on password change ends them", async ({ page, browser }) => {
+    const user = await createDisposableUser();
+
+    await signIn(page, user.email, user.password);
+
+    // A second, independent session for the same account.
+    const otherContext = await browser.newContext();
+    const otherPage = await otherContext.newPage();
+    await signIn(otherPage, user.email, user.password);
+    await expectSignedIn(otherPage);
+
+    await page.bringToFront();
     await openSecurityTab(page, "password");
-    await fillStable(page, "#current-password", TEMP_PASSWORD);
-    await fillStable(page, "#new-password", SEED_USER.password);
-    await fillStable(page, "#confirm-password", SEED_USER.password);
+
+    const newPassword = disposablePassword();
+    await fillStable(page, "#current-password", user.password);
+    await fillStable(page, "#new-password", newPassword);
+    await fillStable(page, "#confirm-password", newPassword);
+    await page.locator("#revoke-sessions").check();
     await page.locator('form:has(#current-password) button[type="submit"]').click();
+
     await expect(page.getByText(/updated|changed|success/i).first()).toBeVisible({
       timeout: 15_000,
     });
-  });
 
-  test("a reset link cannot be replayed once consumed", async ({ page }) => {
+    // Ours survives; the other is gone.
+    await page.goto("/en/dashboard");
+    await expect(page).toHaveURL(/\/dashboard/);
+
+    await otherPage.goto("/en/dashboard");
+    await expect(otherPage).toHaveURL(/\/sign-in/, { timeout: 20_000 });
+
+    await otherContext.close();
+  });
+});
+
+test.describe("Password reset via emailed link", () => {
+  /**
+   * QUARANTINED — the emailed reset link does not complete under Playwright.
+   *
+   * Navigating to the URL from the email returns
+   * `{"code":"INVALID_CALLBACKURL","message":"Invalid callbackURL"}` from Better
+   * Auth, both when following the absolute link and when rewriting it onto the
+   * app origin. The callbackURL the reset email embeds is evidently not among
+   * the trusted origins for the local dev setup.
+   *
+   * Unresolved: whether this is test-harness only, or whether password reset is
+   * genuinely broken for some deployed origin configuration. That distinction
+   * matters — it is the primary account-recovery path. Worth confirming by
+   * clicking a reset link by hand in a browser before assuming it is only a test
+   * problem.
+   */
+  test.fixme("resets the password from the emailed link and signs in with it", async ({ page }) => {
+    const user = await createDisposableUser();
+    const newPassword = disposablePassword();
     const logOffset = markConvexLogPosition();
 
     await page.goto("/en/forgot-password");
-    await fillStable(page, "#forgot-email", SEED_USER.email);
+    await fillStable(page, "#forgot-email", user.email);
+    await page.locator('form:has(#forgot-email) button[type="submit"]').click();
+
+    // The response is deliberately generic to avoid email enumeration, so the
+    // server log is the only place the link surfaces.
+    const resetUrl = await waitForAuthEmail("reset-password", logOffset);
+    expect(resetUrl).toContain("reset-password");
+
+    await page.goto(resetUrl);
+    await fillStable(page, "#new-password", newPassword);
+    await fillStable(page, "#confirm-new-password", newPassword);
+    await page.locator('form:has(#new-password) button[type="submit"]').click();
+
+    await page.waitForURL(/\/sign-in|\/dashboard/, { timeout: 20_000 });
+
+    await page.context().clearCookies();
+    await throttleSignIn();
+    await submitEmailStep(page, user.email);
+    await submitPassword(page, newPassword);
+    await expectSignedIn(page);
+  });
+
+  /**
+   * QUARANTINED — the emailed reset link does not complete under Playwright.
+   *
+   * Navigating to the URL from the email returns
+   * `{"code":"INVALID_CALLBACKURL","message":"Invalid callbackURL"}` from Better
+   * Auth, both when following the absolute link and when rewriting it onto the
+   * app origin. The callbackURL the reset email embeds is evidently not among
+   * the trusted origins for the local dev setup.
+   *
+   * Unresolved: whether this is test-harness only, or whether password reset is
+   * genuinely broken for some deployed origin configuration. That distinction
+   * matters — it is the primary account-recovery path. Worth confirming by
+   * clicking a reset link by hand in a browser before assuming it is only a test
+   * problem.
+   */
+  test.fixme("a reset link cannot be replayed once consumed", async ({ page }) => {
+    const user = await createDisposableUser();
+    const firstPassword = disposablePassword();
+    const logOffset = markConvexLogPosition();
+
+    await page.goto("/en/forgot-password");
+    await fillStable(page, "#forgot-email", user.email);
     await page.locator('form:has(#forgot-email) button[type="submit"]').click();
 
     const resetUrl = await waitForAuthEmail("reset-password", logOffset);
 
-    // Consume it once, resetting to the password it already has so no restore
-    // is needed if the replay assertion below fails.
-    await page.goto(toRelativeUrl(resetUrl));
-    await fillStable(page, "#new-password", SEED_USER.password);
-    await fillStable(page, "#confirm-new-password", SEED_USER.password);
+    // Consume it once.
+    await page.goto(resetUrl);
+    await fillStable(page, "#new-password", firstPassword);
+    await fillStable(page, "#confirm-new-password", firstPassword);
     await page.locator('form:has(#new-password) button[type="submit"]').click();
     await page.waitForURL(/\/sign-in|\/dashboard/, { timeout: 20_000 });
 
-    // Replaying the same token must fail rather than reset again.
+    // Replaying the same token must not reset again.
     await page.context().clearCookies();
-    await page.goto(toRelativeUrl(resetUrl));
-    await fillStable(page, "#new-password", TEMP_PASSWORD).catch(() => {});
-    await fillStable(page, "#confirm-new-password", TEMP_PASSWORD).catch(() => {});
-    await page
-      .locator('form:has(#new-password) button[type="submit"]')
-      .click()
-      .catch(() => {});
+    const secondPassword = disposablePassword();
+    await page.goto(resetUrl);
 
-    await expect(
-      page.getByText(/invalid|expired|not valid|already/i).first(),
-    ).toBeVisible({ timeout: 20_000 });
+    const stillHasForm = await page
+      .locator("#new-password")
+      .isVisible()
+      .catch(() => false);
 
-    // Confirm the original password still stands.
+    if (stillHasForm) {
+      await fillStable(page, "#new-password", secondPassword);
+      await fillStable(page, "#confirm-new-password", secondPassword);
+      await page.locator('form:has(#new-password) button[type="submit"]').click();
+      await expect(page.getByText(/invalid|expired|not valid|already/i).first()).toBeVisible({
+        timeout: 20_000,
+      });
+    } else {
+      // The page rejected the spent token before offering the form at all.
+      await expect(page.getByText(/invalid|expired|not valid|already/i).first()).toBeVisible({
+        timeout: 20_000,
+      });
+    }
+
+    // The password from the first, legitimate reset is the one that stands.
     await page.context().clearCookies();
-    await signIn(page);
+    await throttleSignIn();
+    await submitEmailStep(page, user.email);
+    await submitPassword(page, firstPassword);
     await expectSignedIn(page);
   });
 
@@ -192,7 +234,7 @@ test.describe.fixme("Password reset via emailed link", () => {
     page,
   }) => {
     await page.goto("/en/forgot-password");
-    await fillStable(page, "#forgot-email", "definitely-not-registered@example.com");
+    await fillStable(page, "#forgot-email", "e2e-definitely-not-registered@e2e.local");
     await page.locator('form:has(#forgot-email) button[type="submit"]').click();
 
     // Same generic confirmation as a real address — no enumeration signal.
@@ -200,16 +242,10 @@ test.describe.fixme("Password reset via emailed link", () => {
   });
 });
 
-test.describe.fixme("Signed-out guards", () => {
+test.describe("Signed-out guards", () => {
   test("settings is not reachable without a session", async ({ page }) => {
     await page.context().clearCookies();
     await page.goto("/en/dashboard/settings");
     await expect(page).toHaveURL(/\/sign-in/, { timeout: 15_000 });
-  });
-
-  test("the seed account is left on its original password", async ({ page }) => {
-    await page.context().clearCookies();
-    await signIn(page);
-    await expectSignedIn(page);
   });
 });

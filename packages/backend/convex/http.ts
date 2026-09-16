@@ -10,6 +10,7 @@ import {
   viewBackupCodesHandler,
 } from "./sessions";
 import { getDevTotpCode } from "./devTotp";
+import { createE2eUser } from "./e2eFixtures";
 import {
   isSignupOnboarding,
   isWaitlistOnboarding,
@@ -299,6 +300,14 @@ http.route({
   path: "/api/dev/totp-code",
   method: "GET",
   handler: getDevTotpCode,
+});
+
+// Disposable E2E user fixtures. Gated on DEV_SEED_ENABLED and a reserved
+// e2e.local address — see e2eFixtures.ts for the full safety rationale.
+http.route({
+  path: "/api/dev/e2e-user",
+  method: "POST",
+  handler: createE2eUser,
 });
 
 export default http;
