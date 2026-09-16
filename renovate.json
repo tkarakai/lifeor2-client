@@ -1,0 +1,57 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    "group:monorepos",
+    "group:recommended",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "timezone": "Europe/Budapest",
+  "configMigration": true,
+  "minimumReleaseAge": "10 days",
+  "internalChecksFilter": "strict",
+  "rangeStrategy": "replace",
+  "automergeStrategy": "squash",
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 0,
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "labels": ["security"]
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["on monday"]
+  },
+  "packageRules": [
+    {
+      "description": "Auto-merge non-major updates once CI is green",
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "automerge": true,
+      "platformAutomerge": true
+    },
+    {
+      "description": "Group low-risk dev tooling into a single PR",
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "dev dependencies (non-major)"
+    },
+    {
+      "description": "No major ever auto-merges. Majors arrive as separate PRs by default; treat next/react/convex/better-auth/tailwind majors with extra care — see docs/dependency-updates.md",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "description": "The auth stack moves together. @convex-dev/better-auth pins its own nested copy of better-auth, so bumping better-auth alone upgrades nothing the adapter actually runs, and it breaks the build — dependabot PRs #74 and #77 both failed exactly this way. Never automerged: the 1.4 -> 1.6 move also needed convex/betterAuth/schema.ts reconciled by hand. See docs/claude/auth-e2e-and-upgrade-plan.md step 7.",
+      "matchPackageNames": ["better-auth", "@better-auth/**", "@convex-dev/better-auth"],
+      "groupName": "auth stack",
+      "automerge": false
+    },
+    {
+      "description": "@better-auth/passkey 1.7.x requires better-auth ^1.7.5, which violates @convex-dev/better-auth's peer range of >=1.6.11 <1.7.0, so the auth-stack group would propose an unsatisfiable set. REMOVE once the adapter allows better-auth 1.7 — check with `bun info @convex-dev/better-auth@latest peerDependencies`.",
+      "matchPackageNames": ["@better-auth/passkey"],
+      "allowedVersions": "<1.7.0"
+    }
+  ]
+}

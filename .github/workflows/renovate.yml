@@ -1,0 +1,49 @@
+name: Renovate
+
+# Automated dependency updates with a 10-day stability cooldown.
+# "Self-hosted" Renovate in the Renovate sense only: we run the bot ourselves in
+# this workflow, on GitHub-hosted runners. Nothing runs outside GitHub.
+# See docs/dependency-updates.md for setup, the RENOVATE_TOKEN secret, and policy.
+on:
+  schedule:
+    # Periodic runs: Monday & Thursday at 06:00 UTC (GitHub's scheduler; runs may
+    # be delayed under load, and GitHub pauses schedules after 60 days of repo inactivity).
+    - cron: "0 6 * * 1,4"
+  workflow_dispatch:
+    # Manual "run now" — optionally raise log verbosity for debugging.
+    inputs:
+      logLevel:
+        description: "Renovate log level"
+        required: false
+        default: "info"
+        type: choice
+        options:
+          - info
+          - debug
+
+# Never run two Renovate jobs at once (they'd fight over branches/PRs).
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Run Renovate
+        uses: renovatebot/github-action@b50d2ba2bd928235abdcc14d06dfafc217f1c565 # v46.1.18
+        with:
+          configurationFile: renovate.json
+          # RENOVATE_TOKEN must be a fine-grained PAT (or GitHub App token), NOT the
+          # default GITHUB_TOKEN — otherwise Renovate's PRs won't trigger the ci-* workflows.
+          token: ${{ secrets.RENOVATE_TOKEN }}
+        env:
+          # Autodiscover is off: operate only on this repo.
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          LOG_LEVEL: ${{ inputs.logLevel || 'info' }}

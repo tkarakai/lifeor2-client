@@ -168,6 +168,7 @@ Read these guides when working on specific areas. They contain detailed patterns
 | Working on auth E2E tests, upgrading better-auth / the Convex auth adapter, Renovate / dependency automation, or E2E in CI | `docs/claude/auth-e2e-and-upgrade-plan.md` — **active work tracker; steps 1–8 done or in review, start at step 9** |
 | Working on i18n, locales, translations, or RTL support | `docs/i18n-architecture.md` |
 | Changing database schemas, running migrations, or deploying schema changes | `docs/convex-migrations.md` |
+| Working on Renovate, dependency-update automation, or the `RENOVATE_TOKEN` secret | `docs/dependency-updates.md` |
 
 ## Resources
 
