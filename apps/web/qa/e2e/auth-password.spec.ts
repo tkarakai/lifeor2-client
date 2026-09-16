@@ -10,6 +10,7 @@ import {
   submitEmailStep,
   submitPassword,
   throttleSignIn,
+  throttlePasswordResetRequest,
   waitForAuthEmail,
 } from "./helpers/auth";
 import { createDisposableUser, disposablePassword } from "./helpers/fixtures";
@@ -121,27 +122,16 @@ test.describe("Change password while signed in", () => {
   });
 });
 
-test.describe("Password reset via emailed link", () => {
-  /**
-   * QUARANTINED — the emailed reset link does not complete under Playwright.
-   *
-   * Navigating to the URL from the email returns
-   * `{"code":"INVALID_CALLBACKURL","message":"Invalid callbackURL"}` from Better
-   * Auth, both when following the absolute link and when rewriting it onto the
-   * app origin. The callbackURL the reset email embeds is evidently not among
-   * the trusted origins for the local dev setup.
-   *
-   * Unresolved: whether this is test-harness only, or whether password reset is
-   * genuinely broken for some deployed origin configuration. That distinction
-   * matters — it is the primary account-recovery path. Worth confirming by
-   * clicking a reset link by hand in a browser before assuming it is only a test
-   * problem.
-   */
-  test.fixme("resets the password from the emailed link and signs in with it", async ({ page }) => {
+test.describe.serial("Password reset via emailed link", () => {
+  // Previously quarantined on a bogus INVALID_CALLBACKURL. The product was fine;
+  // `waitForAuthEmail` was capturing the log block's border into the URL's query
+  // string. See the regex note in helpers/auth.ts.
+  test("resets the password from the emailed link and signs in with it", async ({ page }) => {
     const user = await createDisposableUser();
     const newPassword = disposablePassword();
     const logOffset = markConvexLogPosition();
 
+    await throttlePasswordResetRequest();
     await page.goto("/en/forgot-password");
     await fillStable(page, "#forgot-email", user.email);
     await page.locator('form:has(#forgot-email) button[type="submit"]').click();
@@ -156,7 +146,11 @@ test.describe("Password reset via emailed link", () => {
     await fillStable(page, "#confirm-new-password", newPassword);
     await page.locator('form:has(#new-password) button[type="submit"]').click();
 
-    await page.waitForURL(/\/sign-in|\/dashboard/, { timeout: 20_000 });
+    // The app confirms in place and offers a manual "Sign in now" button rather
+    // than redirecting on its own.
+    await expect(page.getByText(/password updated|reset successfully/i).first()).toBeVisible({
+      timeout: 20_000,
+    });
 
     await page.context().clearCookies();
     await throttleSignIn();
@@ -165,26 +159,12 @@ test.describe("Password reset via emailed link", () => {
     await expectSignedIn(page);
   });
 
-  /**
-   * QUARANTINED — the emailed reset link does not complete under Playwright.
-   *
-   * Navigating to the URL from the email returns
-   * `{"code":"INVALID_CALLBACKURL","message":"Invalid callbackURL"}` from Better
-   * Auth, both when following the absolute link and when rewriting it onto the
-   * app origin. The callbackURL the reset email embeds is evidently not among
-   * the trusted origins for the local dev setup.
-   *
-   * Unresolved: whether this is test-harness only, or whether password reset is
-   * genuinely broken for some deployed origin configuration. That distinction
-   * matters — it is the primary account-recovery path. Worth confirming by
-   * clicking a reset link by hand in a browser before assuming it is only a test
-   * problem.
-   */
-  test.fixme("a reset link cannot be replayed once consumed", async ({ page }) => {
+  test("a reset link cannot be replayed once consumed", async ({ page }) => {
     const user = await createDisposableUser();
     const firstPassword = disposablePassword();
     const logOffset = markConvexLogPosition();
 
+    await throttlePasswordResetRequest();
     await page.goto("/en/forgot-password");
     await fillStable(page, "#forgot-email", user.email);
     await page.locator('form:has(#forgot-email) button[type="submit"]').click();
@@ -196,7 +176,9 @@ test.describe("Password reset via emailed link", () => {
     await fillStable(page, "#new-password", firstPassword);
     await fillStable(page, "#confirm-new-password", firstPassword);
     await page.locator('form:has(#new-password) button[type="submit"]').click();
-    await page.waitForURL(/\/sign-in|\/dashboard/, { timeout: 20_000 });
+    await expect(page.getByText(/password updated|reset successfully/i).first()).toBeVisible({
+      timeout: 20_000,
+    });
 
     // Replaying the same token must not reset again.
     await page.context().clearCookies();
@@ -233,6 +215,7 @@ test.describe("Password reset via emailed link", () => {
   test("requesting a reset for an unknown address does not reveal that it is unknown", async ({
     page,
   }) => {
+    await throttlePasswordResetRequest();
     await page.goto("/en/forgot-password");
     await fillStable(page, "#forgot-email", "e2e-definitely-not-registered@e2e.local");
     await page.locator('form:has(#forgot-email) button[type="submit"]').click();

@@ -92,6 +92,13 @@ export function SessionsList() {
   const fetchSessions = React.useCallback(async () => {
     try {
       const result = await authClient.listSessions();
+      // listSessions resolves with { data, error } instead of throwing, so an
+      // HTTP failure lands here with data undefined. Without this branch the
+      // page sits in its loading skeleton forever and never tells the user why.
+      if (result.error) {
+        setError("Failed to load sessions.");
+        return;
+      }
       if (result.data) {
         setSessions(result.data as Session[]);
       }
@@ -139,7 +146,11 @@ export function SessionsList() {
     let status: AuditStatus = "succeeded";
 
     try {
-      await authClient.revokeSessions();
+      // revokeSessions() kills EVERY session including this one, which signs the
+      // user out of the device they are sitting at. The control is "sign out all
+      // others" (and audits as session:all-others), so it must spare the current
+      // session.
+      await authClient.revokeOtherSessions();
       await fetchSessions();
     } catch {
       status = "failed.unknown";

@@ -96,8 +96,12 @@ export function TwoFactorSection() {
         toast.error(tcp("errorCurrentPassword"));
         return;
       }
-      const uri = (result.data as { totpURI?: string })?.totpURI ?? "";
-      setTotpUri(uri);
+      // Better Auth returns the backup codes here, at enrolment — `verifyTotp`
+      // does not return them. Stash them now or they are lost for good, leaving
+      // the user with 2FA enforced and no way back in.
+      const data = result.data as { totpURI?: string; backupCodes?: string[] } | undefined;
+      setTotpUri(data?.totpURI ?? "");
+      setBackupCodes(data?.backupCodes ?? []);
       setStep("totp-uri");
       setPassword("");
     } catch {
@@ -118,8 +122,12 @@ export function TwoFactorSection() {
         toast.error(tc("error"));
         return;
       }
+      // Prefer codes from the verify response if a future Better Auth version
+      // starts returning them; otherwise keep the ones captured at enable time.
       const data = result.data as { backupCodes?: string[] } | undefined;
-      setBackupCodes(data?.backupCodes ?? []);
+      if (data?.backupCodes?.length) {
+        setBackupCodes(data.backupCodes);
+      }
       setEnabled(true);
       setStep("backup-codes");
       setCode("");
@@ -367,7 +375,7 @@ export function TwoFactorSection() {
             <Button type="button" onClick={() => handleVerify()} disabled={loading || code.length !== 6}>
               {loading ? tc("loading") : t2("verify")}
             </Button>
-            <Button type="button" variant="outline" onClick={() => { setStep("idle"); setCode(""); setTotpUri(""); }}>
+            <Button type="button" variant="outline" onClick={() => { setStep("idle"); setCode(""); setTotpUri(""); setBackupCodes([]); }}>
               {tc("cancel")}
             </Button>
           </div>

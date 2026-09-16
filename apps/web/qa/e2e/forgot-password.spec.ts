@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+import { fillStable } from "./helpers/auth";
+
 /**
  * Forgot Password Flow E2E Tests
  *
@@ -44,7 +46,7 @@ test.describe("Forgot Password Page", () => {
       });
     });
 
-    await page.fill("#forgot-email", "test@example.com");
+    await fillStable(page, "#forgot-email", "test@example.com");
     await page.click('button[type="submit"]');
 
     // Should show the email-sent confirmation screen
@@ -68,7 +70,7 @@ test.describe("Forgot Password Page", () => {
       });
     });
 
-    await page.fill("#forgot-email", "nonexistent@example.com");
+    await fillStable(page, "#forgot-email", "nonexistent@example.com");
     await page.click('button[type="submit"]');
 
     // Should still show success (email sent screen) — no email enumeration
@@ -76,10 +78,12 @@ test.describe("Forgot Password Page", () => {
     // Wait for either the success screen or the form to still be visible
     await page.waitForTimeout(2000);
 
-    // Should NOT show an error about user not found
-    const pageContent = await page.content();
-    expect(pageContent).not.toContain("not found");
-    expect(pageContent).not.toContain("does not exist");
+    // Scope this to what the user can actually read. page.content() returns the
+    // whole document including Next's dev bundles, which contain strings like
+    // "not found" for unrelated reasons — the old assertion could never pass.
+    const visible = await page.locator("main").innerText();
+    expect(visible).not.toContain("not found");
+    expect(visible).not.toContain("does not exist");
   });
 
   test("shows rate limit error when server returns 429", async ({ page }) => {
@@ -94,15 +98,17 @@ test.describe("Forgot Password Page", () => {
       });
     });
 
-    await page.fill("#forgot-email", "ratelimited@example.com");
+    await fillStable(page, "#forgot-email", "ratelimited@example.com");
     await page.click('button[type="submit"]');
 
     // Should show a user-friendly rate limit message
     const errorBox = page.locator(".rounded-md.border.bg-muted");
     await expect(errorBox).toBeVisible({ timeout: 10000 });
 
+    // The forgot-password form's own copy — note it differs from the sign-in
+    // form's "Too many attempts. Please wait a moment before trying again."
     const errorText = await errorBox.textContent();
-    expect(errorText).toContain("Too many attempts");
+    expect(errorText).toContain("Too many requests");
     expect(errorText).not.toContain("429");
   });
 
@@ -120,7 +126,7 @@ test.describe("Forgot Password Page", () => {
       });
     });
 
-    await page.fill("#forgot-email", "pending@example.com");
+    await fillStable(page, "#forgot-email", "pending@example.com");
     await page.click('button[type="submit"]');
 
     const submitButton = page.locator('button[type="submit"]');

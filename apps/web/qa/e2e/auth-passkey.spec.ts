@@ -1,7 +1,6 @@
 import { expect, test, type CDPSession, type Page } from "@playwright/test";
 
 import {
-  SEED_USER,
   openSecurityTab,
   fillStable,
   expectSignedIn,
@@ -10,6 +9,7 @@ import {
   submitEmailStep,
   throttleSignIn,
 } from "./helpers/auth";
+import { createDisposableUser } from "./helpers/fixtures";
 
 /**
  * Passkey (WebAuthn) E2E Tests
@@ -21,16 +21,9 @@ import {
  * The default `userPasskeyPolicy` is `optional` (`securityPolicies.ts`), so the
  * passkey section renders without any admin setup.
  *
- * Serial and self-restoring: passkeys are registered against the shared seed
- * account and deleted afterwards.
- *
- * QUARANTINED (`describe.fixme` — reported as skipped, CI stays green).
- *
- * Written against the real CDP virtual authenticator and the real markup, but
- * not yet verified end-to-end: the shared dev-seed account has to be restored
- * between tests, and a mid-flow failure strands registered credentials on it.
- * Enabling these needs the same disposable-user fixture as the other mutating
- * suites.
+ * Previously quarantined because these mutate the shared dev-seed account and a
+ * mid-flow failure stranded credentials on it. Each test now mints its own
+ * disposable account, so nothing needs restoring.
  */
 test.describe.configure({ mode: "serial", timeout: 120_000 });
 
@@ -83,26 +76,25 @@ async function deleteAllPasskeys(page: Page): Promise<void> {
   }
 }
 
-test.describe.fixme("Passkey registration and sign-in", () => {
-  test.afterEach(async ({ page }) => {
-    await page.context().clearCookies();
-    await signIn(page).catch(() => {});
-    await deleteAllPasskeys(page).catch(() => {});
-  });
-
+test.describe("Passkey registration and sign-in", () => {
   test("registers a passkey and lists it in settings", async ({ page }) => {
     await addVirtualAuthenticator(page);
-    await signIn(page);
+    const user = await createDisposableUser();
+    await signIn(page, user.email, user.password);
 
     await registerPasskey(page, "E2E Virtual Key");
 
+    // A reload resets the inner security tabs to Password — the sub-tab is not
+    // deep-linkable — so re-open Passkeys before asserting on the list.
     await page.reload();
+    await openSecurityTab(page, "passkeys");
     await expect(page.getByText("E2E Virtual Key")).toBeVisible({ timeout: 20_000 });
   });
 
   test("signs in with a passkey instead of a password", async ({ page }) => {
     const { client, id: authenticatorId } = await addVirtualAuthenticator(page);
-    await signIn(page);
+    const user = await createDisposableUser();
+    await signIn(page, user.email, user.password);
     await registerPasskey(page, "E2E Sign-in Key");
 
     // Registration must have produced a real credential in the authenticator.
@@ -114,7 +106,7 @@ test.describe.fixme("Passkey registration and sign-in", () => {
     // The credential is held by the virtual authenticator bound to this page's
     // CDP session, so the assertion has to happen in this same page.
     await throttleSignIn();
-    await submitEmailStep(page, SEED_USER.email);
+    await submitEmailStep(page, user.email);
 
     const passkeyButton = page.getByRole("button", { name: /passkey/i }).first();
     await expect(passkeyButton).toBeVisible({ timeout: 15_000 });
@@ -125,19 +117,22 @@ test.describe.fixme("Passkey registration and sign-in", () => {
 
   test("renames a passkey", async ({ page }) => {
     await addVirtualAuthenticator(page);
-    await signIn(page);
+    const user = await createDisposableUser();
+    await signIn(page, user.email, user.password);
     await registerPasskey(page, "Before Rename");
 
     await page.getByRole("button", { name: /rename|edit/i }).first().click();
 
-    const nameInput = page.locator('input[value="Before Rename"]').first();
-    await expect(nameInput).toBeVisible({ timeout: 15_000 });
-    await nameInput.click();
-    await page.keyboard.press("ControlOrMeta+A");
-    await page.keyboard.press("Backspace");
-    await nameInput.pressSequentially("After Rename", { delay: 15 });
+    // Not `input[value="..."]`: the attribute selector stops matching the moment
+    // the field is cleared, so the locator cannot be re-resolved mid-edit.
+    // fillStable also retries — the row re-renders on entering edit mode and can
+    // pull focus back to the Rename button mid-keystroke.
+    await expect(page.getByLabel("Passkey name").first()).toBeVisible({ timeout: 15_000 });
+    await fillStable(page, 'input[aria-label="Passkey name"]', "After Rename");
 
-    await page.getByRole("button", { name: /save|confirm|rename/i }).first().click();
+    // Exact: the row's pencil button is also named "Rename passkey ...", and it
+    // comes first in the DOM, so a loose /rename/i match would re-open the editor.
+    await page.getByRole("button", { name: "Save", exact: true }).first().click();
 
     await expect(page.getByText("After Rename")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("Before Rename")).toHaveCount(0);
@@ -145,18 +140,22 @@ test.describe.fixme("Passkey registration and sign-in", () => {
 
   test("deletes a passkey and it can no longer sign in", async ({ page }) => {
     await addVirtualAuthenticator(page);
-    await signIn(page);
+    const user = await createDisposableUser();
+    await signIn(page, user.email, user.password);
     await registerPasskey(page, "Doomed Key");
 
     await deleteAllPasskeys(page);
 
+    // A reload resets the inner security tabs to Password — the sub-tab is not
+    // deep-linkable — so re-open Passkeys before asserting on the list.
     await page.reload();
+    await openSecurityTab(page, "passkeys");
     await expect(page.getByText("Doomed Key")).toHaveCount(0);
 
     // With no registered passkey, the account falls back to password auth.
     await signOut(page);
     await throttleSignIn();
-    await submitEmailStep(page, SEED_USER.email);
+    await submitEmailStep(page, user.email);
     await expect(page.locator("#password")).toBeVisible({ timeout: 15_000 });
   });
 });

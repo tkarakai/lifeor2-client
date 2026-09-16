@@ -93,9 +93,10 @@ test.describe("Auth Page Navigation Guards", () => {
     const response = await page.goto("/en/sign-in");
     expect(response?.status()).toBe(200);
 
-    // Should show the sign-in form
+    // Sign-in is a two-step form — step 1 is the email only. #password does not
+    // exist until that step is submitted.
     await expect(page.locator("#email")).toBeVisible();
-    await expect(page.locator("#password")).toBeVisible();
+    await expect(page.locator("#password")).toHaveCount(0);
   });
 
   test("/sign-up page is accessible without authentication", async ({
@@ -104,9 +105,12 @@ test.describe("Auth Page Navigation Guards", () => {
     const response = await page.goto("/en/sign-up");
     expect(response?.status()).toBe(200);
 
-    // Should show the sign-up form with name field
-    await expect(page.locator("#name")).toBeVisible();
-    await expect(page.locator("#email")).toBeVisible();
+    // Sign-up is invitation-gated by default (`onboardingType: inviteOnly`), so
+    // the page is reachable but carries no registration form.
+    await expect(page.getByText(/invitation only/i).first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.locator("#name")).toHaveCount(0);
   });
 
   test("direct navigation to /dashboard without cookie redirects to /sign-in", async ({
@@ -157,11 +161,13 @@ test.describe("Multi-Tab Session Detection", () => {
     const form = page.locator("form");
     await expect(form).toBeVisible();
 
-    // Navigate to sign-up page
+    // The sign-up page has no form to guard while sign-up is invitation-only;
+    // assert it still renders its gate rather than a blank or errored page.
     await page.goto("/en/sign-up");
     await page.waitForLoadState("networkidle");
 
-    const signUpForm = page.locator("form");
-    await expect(signUpForm).toBeVisible();
+    await expect(page.getByText(/invitation only/i).first()).toBeVisible({
+      timeout: 15_000,
+    });
   });
 });

@@ -153,18 +153,24 @@ jobs:
   # E2E TESTS
   # ============================================================
   e2e:
-    name: E2E Tests
+    name: E2E Tests (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-latest
     needs: [changes, build]
     if: vars.SKIP_E2E != 'true' && needs.changes.outputs.should_run == 'true' && github.event.pull_request.draft == false
-    timeout-minutes: 15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-playwright
 
+      # Each shard boots its own Convex backend via the Playwright webServer,
+      # so auth rate-limit counters stay per-shard and workers stay at 1.
       - name: Run Playwright tests
-        run: cd apps/web && bunx playwright test --project=chromium
+        run: cd apps/web && bunx playwright test --project=chromium --shard=${{ matrix.shard }}/${{ strategy.job-total }}
         env:
           CI: true
 
@@ -182,8 +188,8 @@ jobs:
         if: ${{ always() && !env.ACT }}
         continue-on-error: true
         with:
-          name: playwright-report-web
-          path: apps/web/qa/playwright-report/
+          name: blob-report-web-${{ matrix.shard }}
+          path: apps/web/blob-report/
           retention-days: 7
 
       - name: Upload visual snapshots
@@ -191,7 +197,7 @@ jobs:
         if: ${{ always() && !env.ACT }}
         continue-on-error: true
         with:
-          name: visual-snapshots-web
+          name: visual-snapshots-web-${{ matrix.shard }}
           path: apps/web/qa/e2e/__screenshots__/
           retention-days: 7
           if-no-files-found: ignore
@@ -199,10 +205,45 @@ jobs:
       - name: Save job outputs (act)
         if: ${{ always() && env.ACT }}
         run: |
-          JOB_DIR="/act-artifacts/web/e2e"
+          JOB_DIR="/act-artifacts/web/e2e/shard-${{ matrix.shard }}"
           mkdir -p "$JOB_DIR/artifacts"
           [ -d "apps/web/qa/playwright-report" ] && cp -r "apps/web/qa/playwright-report" "$JOB_DIR/artifacts/playwright-report-web" 2>/dev/null || true
           [ -d "apps/web/qa/e2e/__screenshots__" ] && cp -r "apps/web/qa/e2e/__screenshots__" "$JOB_DIR/artifacts/visual-snapshots-web" 2>/dev/null || true
+
+  # ============================================================
+  # MERGE SHARDED E2E REPORTS
+  # ============================================================
+  e2e-report:
+    name: Merge E2E Reports
+    runs-on: ubuntu-latest
+    needs: [changes, e2e]
+    # NOTE: the `env` context is not available in a job-level `if` — using it
+    # here makes GitHub reject the entire workflow file at parse time.
+    if: ${{ always() && needs.e2e.result != 'skipped' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-bun
+
+      - name: Download blob reports
+        uses: actions/download-artifact@v4
+        with:
+          path: apps/web/all-blob-reports
+          pattern: blob-report-web-*
+          merge-multiple: true
+
+      - name: Merge into HTML report
+        run: cd apps/web && bunx playwright merge-reports --reporter=html ./all-blob-reports
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: qa/playwright-report
+
+      - name: Upload merged report
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: playwright-report-web
+          path: apps/web/qa/playwright-report/
+          retention-days: 7
 
   # ============================================================
   # SUMMARY

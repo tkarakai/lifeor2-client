@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+import { fillStable, submitEmailStep } from "./helpers/auth";
+
 /**
  * Auth Rate Limit E2E Tests
  *
@@ -9,14 +11,17 @@ import { test, expect } from "@playwright/test";
  *
  * NOTE: These tests hit the real auth endpoints and may trigger actual
  * rate limits. They use unique emails to avoid side effects.
+ *
+ * Sign-in is a two-step form: #password only exists after the email step is
+ * submitted, and the email cannot be re-entered without going back. Route mocks
+ * are installed *after* the email step so they do not intercept it.
  */
 
 test.describe("Sign-In Rate Limiting", () => {
   test("shows rate limit error when server returns 429", async ({
     page,
   }) => {
-    await page.goto("/en/sign-in");
-    await expect(page.locator("#email")).toBeVisible();
+    await submitEmailStep(page, "ratelimit-test@example.com");
 
     // Mock the auth endpoint to return a 429 rate limit response
     await page.route("**/api/auth/sign-in/email", async (route) => {
@@ -27,9 +32,8 @@ test.describe("Sign-In Rate Limiting", () => {
       });
     });
 
-    await page.fill("#email", "ratelimit-test@example.com");
-    await page.fill("#password", "wrongpassword");
-    await page.click('button[type="submit"]');
+    await fillStable(page, "#password", "wrongpassword");
+    await page.locator('form:has(#password) button[type="submit"]').click();
 
     // The UI should show the user-friendly rate limit message
     const errorBox = page.locator(".rounded-md.border.bg-muted");
@@ -42,15 +46,13 @@ test.describe("Sign-In Rate Limiting", () => {
   test("rate limit error message does not expose internals", async ({
     page,
   }) => {
-    await page.goto("/en/sign-in");
-    await page.waitForLoadState("networkidle");
+    await submitEmailStep(page, "ratelimit-internal@example.com");
 
-    // Even if rate limited, the message should be user-friendly
-    // and not expose server details.
+    // Even if rate limited, the message should be user-friendly and not expose
+    // server details. The email step is behind us, so hammer the password step.
     for (let i = 0; i < 5; i++) {
-      await page.fill("#email", "ratelimit-internal@example.com");
-      await page.fill("#password", "wrong");
-      await page.click('button[type="submit"]');
+      await fillStable(page, "#password", "wrong");
+      await page.locator('form:has(#password) button[type="submit"]').click();
       await page.waitForTimeout(300);
     }
 
@@ -70,11 +72,8 @@ test.describe("Sign-In Form Security", () => {
   test("submit button is disabled while request is pending", async ({
     page,
   }) => {
-    await page.goto("/en/sign-in");
-    await page.waitForLoadState("networkidle");
-
-    await page.fill("#email", "pending-test@example.com");
-    await page.fill("#password", "somepassword123");
+    await submitEmailStep(page, "pending-test@example.com");
+    await fillStable(page, "#password", "somepassword123");
 
     // Intercept the auth request to delay it
     await page.route("**/api/auth/**", async (route) => {
@@ -82,21 +81,19 @@ test.describe("Sign-In Form Security", () => {
       await route.continue();
     });
 
-    await page.click('button[type="submit"]');
+    const submitButton = page.locator('form:has(#password) button[type="submit"]');
+    await submitButton.click();
 
     // Button should be disabled while pending
-    const submitButton = page.locator('button[type="submit"]');
     await expect(submitButton).toBeDisabled();
   });
 
   test("error is cleared when form is resubmitted", async ({ page }) => {
-    await page.goto("/en/sign-in");
-    await expect(page.locator("#email")).toBeVisible();
+    await submitEmailStep(page, "error-clear@example.com");
 
     // First attempt: trigger an error
-    await page.fill("#email", "error-clear@example.com");
-    await page.fill("#password", "wrong");
-    await page.click('button[type="submit"]');
+    await fillStable(page, "#password", "wrong");
+    await page.locator('form:has(#password) button[type="submit"]').click();
 
     const errorBox = page.locator(".rounded-md.border.bg-muted");
     await expect(errorBox).toBeVisible({ timeout: 10000 });
@@ -109,8 +106,8 @@ test.describe("Sign-In Form Security", () => {
     });
 
     // Second attempt: error should be cleared during submission
-    await page.fill("#password", "anotherpassword");
-    await page.click('button[type="submit"]');
+    await fillStable(page, "#password", "anotherpassword");
+    await page.locator('form:has(#password) button[type="submit"]').click();
 
     // While the request is pending, the old error should be hidden
     await expect(errorBox).not.toBeVisible({ timeout: 2000 });

@@ -87,17 +87,13 @@ test.describe("Authenticated session", () => {
 });
 
 /**
- * QUARANTINED (`describe.fixme` — reported as skipped, CI stays green).
- *
- * `/dashboard/settings/sessions` renders its heading but no session cards under
- * Playwright — not even the current session — so the "Sign out all others"
- * control never appears (it is gated on `otherSessions.length > 0`). The session
- * list is fetched client-side; whether it is a load-timing issue or the query
- * returning empty in this environment has not been established. Worth a look on
- * its own, since the same page is what a user relies on to spot a session they
- * do not recognise.
+ * Previously quarantined on "renders no session cards under Playwright". Not
+ * reproducible against a disposable account: the page lists both the current
+ * session and the other device, and "Sign out all others" resolves as a single
+ * button by role. The earlier symptom was most likely an artefact of sharing
+ * the dev-seed account across specs.
  */
-test.describe.fixme("Session management from settings", () => {
+test.describe("Session management from settings", () => {
   test("lists the current session and revokes all other sessions", async ({ page, browser }) => {
     const user = await createDisposableUser();
     await signIn(page, user.email, user.password);

@@ -278,6 +278,7 @@ export function PasskeySection() {
                       type="button"
                       size="icon"
                       variant="ghost"
+                      aria-label={`Rename passkey ${record.name ?? ""}`.trim()}
                       onClick={() => {
                         setEditingId(id);
                         setEditName(record.name ?? "");
@@ -290,6 +291,7 @@ export function PasskeySection() {
                       size="icon"
                       variant="ghost"
                       className="text-destructive hover:text-destructive"
+                      aria-label={`Delete passkey ${record.name ?? ""}`.trim()}
                       onClick={() => deletePasskey(id)}
                       disabled={policy === "required" && passkeys.length <= 1}
                     >
@@ -304,6 +306,7 @@ export function PasskeySection() {
                       value={editName}
                       onChange={(event) => setEditName(event.target.value)}
                       className="max-w-sm"
+                      aria-label="Passkey name"
                       autoFocus
                     />
                     <Button

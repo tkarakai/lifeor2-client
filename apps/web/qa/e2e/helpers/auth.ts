@@ -57,6 +57,35 @@ export async function throttleSignIn(): Promise<void> {
 }
 
 /**
+ * `authPasswordResetRequest` is a 3-per-minute token bucket keyed by **IP**
+ * (`rateLimits.ts`), so unlike sign-in it is not isolated by using a disposable
+ * user — every reset request in the run shares one budget. Pace them, or the
+ * third test in a file starts failing for reasons that look like a broken reset.
+ */
+const RESET_REQUEST_RATE_LIMIT = { attempts: 3, windowMs: 60_000 } as const;
+
+const resetRequestTimestamps: number[] = [];
+
+export async function throttlePasswordResetRequest(): Promise<void> {
+  const now = Date.now();
+  while (
+    resetRequestTimestamps.length > 0 &&
+    now - resetRequestTimestamps[0] > RESET_REQUEST_RATE_LIMIT.windowMs
+  ) {
+    resetRequestTimestamps.shift();
+  }
+
+  if (resetRequestTimestamps.length >= RESET_REQUEST_RATE_LIMIT.attempts) {
+    const waitMs =
+      RESET_REQUEST_RATE_LIMIT.windowMs - (now - resetRequestTimestamps[0]) + 500;
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    resetRequestTimestamps.shift();
+  }
+
+  resetRequestTimestamps.push(Date.now());
+}
+
+/**
  * Type into a controlled input and confirm the value stuck.
  *
  * `locator.fill()` does NOT work on this form's inputs: it sets the value and
@@ -297,7 +326,14 @@ export async function waitForAuthEmail(
   while (Date.now() < deadline) {
     const tail = readConvexLog().slice(fromOffset);
     // The logged block renders as "║  URL:     <value>" (or "Code:" for OTPs).
-    const matches = [...tail.matchAll(/AUTH EMAIL \(([A-Z-]+)\s*\)[\s\S]*?(?:URL|Code):\s*(\S+)/g)];
+    // Convex writes the block's line breaks as the two characters `\` + `n`,
+    // not real newlines, so a plain \S+ runs straight past the end of the value
+    // and swallows the box border — which then corrupts the URL's query string.
+    const matches = [
+      ...tail.matchAll(
+        /AUTH EMAIL \(([A-Z-]+)\s*\)[\s\S]*?(?:URL|Code):\s*((?:(?!\\n)\S)+)/g,
+      ),
+    ];
     const match = matches.reverse().find((m) => m[1].trim() === label);
     if (match) return match[2];
 

@@ -1,5 +1,7 @@
 import { test, expect, type Dialog } from "@playwright/test";
 
+import { fillStable, submitEmailStep } from "./helpers/auth";
+
 /**
  * XSS Attack Surface Verification
  *
@@ -20,39 +22,31 @@ const XSS_PAYLOADS = [
 ];
 
 test.describe("XSS Protection — CSP Enforcement", () => {
-  test("inline script injection is blocked by CSP", async ({ page }) => {
-    // Listen for CSP violation reports
-    const cspViolations: string[] = [];
-    page.on("console", (msg) => {
-      const text = msg.text();
-      if (
-        text.includes("Content Security Policy") ||
-        text.includes("content-security-policy") ||
-        text.includes("Refused to execute")
-      ) {
-        cspViolations.push(text);
-      }
-    });
+  test("script-src is nonce-based with no 'unsafe-inline'", async ({ page }) => {
+    /**
+     * This previously appended a <script> via page.evaluate and asserted it did
+     * not run. Under `'strict-dynamic'` that script is *supposed* to run: the
+     * directive propagates trust to scripts created programmatically by already
+     * trusted code, and blocks parser-inserted markup instead. Playwright's
+     * evaluate counts as trusted, so the old assertion could only ever fail —
+     * and it told us nothing about whether the policy is sound.
+     *
+     * Assert the policy itself. Full header coverage is in csp-validation.spec.ts.
+     */
+    const response = await page.goto("/en/sign-in");
+    const csp = response?.headers()["content-security-policy"] ?? "";
+    expect(csp).not.toBe("");
 
-    await page.goto("/en/sign-in");
-    await expect(page.locator("#email")).toBeVisible();
+    const scriptSrc = csp
+      .split(";")
+      .map((d) => d.trim())
+      .find((d) => d.startsWith("script-src"));
 
-    // Try to inject an inline script via the page
-    const executed = await page.evaluate(() => {
-      try {
-        const script = document.createElement("script");
-        script.textContent = 'window.__xss_test = true';
-        document.body.appendChild(script);
-        // Check if it actually executed
-        return (window as unknown as Record<string, unknown>).__xss_test === true;
-      } catch {
-        return false;
-      }
-    });
-
-    // With strict CSP (nonce-based + strict-dynamic), inline scripts
-    // without the correct nonce must be blocked — even in dev mode.
-    expect(executed).toBe(false);
+    expect(scriptSrc, "script-src directive should be present").toBeTruthy();
+    expect(scriptSrc).toContain("'strict-dynamic'");
+    expect(scriptSrc).toMatch(/'nonce-[^']+'/);
+    // The nonce is worthless if inline scripts are allowed wholesale.
+    expect(scriptSrc).not.toContain("'unsafe-inline'");
   });
 
   test("CSP blocks eval() in production-like settings", async ({ page }) => {
@@ -88,18 +82,27 @@ test.describe("XSS Protection — Input Escaping", () => {
     await page.goto("/en/sign-in");
     await page.waitForLoadState("networkidle");
 
+    // Sign-in is two-step. Submitting the email step is enough: the payload is
+    // echoed back by the UI there, which is where it would execute if unescaped.
     for (const payload of XSS_PAYLOADS) {
-      await page.fill("#email", payload);
-      await page.fill("#password", "test1234");
-      await page.click('button[type="submit"]');
+      await fillStable(page, "#email", payload);
+      await page.locator('form:has(#email) button[type="submit"]').click();
       await page.waitForTimeout(500);
+      await page.goto("/en/sign-in");
+      await page.waitForLoadState("networkidle");
     }
 
     // No alert/confirm/prompt dialogs should have been triggered
     expect(dialogs).toHaveLength(0);
   });
 
-  test("XSS payloads in sign-up name field are not executed", async ({
+  /**
+   * Was "XSS payloads in sign-up name field are not executed". Sign-up is
+   * invitation-gated by default, so /en/sign-up renders no inputs at all and
+   * that test had no target. Retargeted at forgot-password, which is the other
+   * unauthenticated form that echoes user input back.
+   */
+  test("XSS payloads in the forgot-password field are not executed", async ({
     page,
   }) => {
     const dialogs: Dialog[] = [];
@@ -108,18 +111,20 @@ test.describe("XSS Protection — Input Escaping", () => {
       dialog.dismiss();
     });
 
-    await page.goto("/en/sign-up");
-    await page.waitForLoadState("networkidle");
-
     for (const payload of XSS_PAYLOADS) {
-      await page.fill("#name", payload);
-      await page.fill("#email", `xss-test-${Date.now()}@example.com`);
-      await page.fill("#password", "password123");
-      await page.fill("#confirm-password", "password123");
+      await page.goto("/en/forgot-password");
+      await page.waitForLoadState("networkidle");
 
-      // Don't actually submit to avoid creating accounts
-      // Just verify the input is rendered safely
-      break;
+      await fillStable(page, "#forgot-email", payload);
+      await page.locator('form:has(#forgot-email) button[type="submit"]').click();
+      await page.waitForTimeout(400);
+
+      // Assert structurally, not by substring: a correctly escaped payload still
+      // appears verbatim in the serialised HTML as an attribute value, and
+      // "description" contains the substring "script". What matters is that no
+      // element was actually created from the payload.
+      expect(await page.locator("main script").count()).toBe(0);
+      expect(await page.locator("main [onerror], main [onload]").count()).toBe(0);
     }
 
     expect(dialogs).toHaveLength(0);
@@ -136,9 +141,9 @@ test.describe("XSS Protection — Input Escaping", () => {
     await page.waitForLoadState("networkidle");
 
     // Submit invalid credentials to trigger error display
-    await page.fill("#email", "test@example.com");
-    await page.fill("#password", "wrongpassword");
-    await page.click('button[type="submit"]');
+    await submitEmailStep(page, "test@example.com");
+    await fillStable(page, "#password", "wrongpassword");
+    await page.locator('form:has(#password) button[type="submit"]').click();
 
     // Wait for error to appear
     const errorBox = page.locator(".rounded-md.border.bg-muted");

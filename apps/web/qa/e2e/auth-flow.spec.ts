@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+import { fillStable, submitEmailStep } from "./helpers/auth";
+
 /**
  * Authentication Flow E2E Tests
  *
@@ -16,12 +18,11 @@ test.describe("Sign-In Flow", () => {
   test("shows generic error for wrong password (no email enumeration)", async ({
     page,
   }) => {
-    await page.goto("/en/sign-in");
-    await page.waitForLoadState("networkidle");
-
-    await page.fill("#email", "nonexistent@example.com");
-    await page.fill("#password", "wrongpassword123");
-    await page.click('button[type="submit"]');
+    // Sign-in is a two-step form: #password does not exist until the email
+    // step is submitted.
+    await submitEmailStep(page, "nonexistent@example.com");
+    await fillStable(page, "#password", "wrongpassword123");
+    await page.locator('form:has(#password) button[type="submit"]').click();
 
     // Wait for the error message to appear
     const errorBox = page.locator(".rounded-md.border.bg-muted");
@@ -34,24 +35,26 @@ test.describe("Sign-In Flow", () => {
     expect(errorText).not.toContain("does not exist");
   });
 
-  test("sign-in form has required email and password fields", async ({
+  test("each step of the sign-in form has the right required field", async ({
     page,
   }) => {
+    // Step 1 offers the email only — there is no single screen carrying both
+    // fields any more, so this asserts each step in turn.
     await page.goto("/en/sign-in");
     await page.waitForLoadState("networkidle");
 
     const emailInput = page.locator("#email");
-    const passwordInput = page.locator("#password");
-
     await expect(emailInput).toBeVisible();
-    await expect(passwordInput).toBeVisible();
-
-    // Verify input types
     await expect(emailInput).toHaveAttribute("type", "email");
-    await expect(passwordInput).toHaveAttribute("type", "password");
-
-    // Verify required attribute
     await expect(emailInput).toHaveAttribute("required", "");
+    await expect(page.locator("#password")).toHaveCount(0);
+
+    // Step 2 swaps in the password.
+    await submitEmailStep(page, "nonexistent@example.com");
+
+    const passwordInput = page.locator("#password");
+    await expect(passwordInput).toBeVisible();
+    await expect(passwordInput).toHaveAttribute("type", "password");
     await expect(passwordInput).toHaveAttribute("required", "");
   });
 
@@ -64,62 +67,52 @@ test.describe("Sign-In Flow", () => {
   });
 
   test("password field is type=password (not plain text)", async ({ page }) => {
-    await page.goto("/en/sign-in");
-    await page.waitForLoadState("networkidle");
+    await submitEmailStep(page, "nonexistent@example.com");
 
     const passwordInput = page.locator("#password");
     await expect(passwordInput).toHaveAttribute("type", "password");
   });
 });
 
-test.describe("Sign-Up Flow", () => {
-  test("sign-up form enforces minimum password length", async ({ page }) => {
-    await page.goto("/en/sign-up");
-    await page.waitForLoadState("networkidle");
-
-    const passwordInput = page.locator("#password");
-    const confirmInput = page.locator("#confirm-password");
-
-    // Both password fields should have minLength=8
-    await expect(passwordInput).toHaveAttribute("minLength", "8");
-    await expect(confirmInput).toHaveAttribute("minLength", "8");
-  });
-
-  test("sign-up form shows error on password mismatch", async ({ page }) => {
-    await page.goto("/en/sign-up");
-    await page.waitForLoadState("networkidle");
-
-    await page.fill("#name", "Test User");
-    await page.fill("#email", `${TEST_EMAIL_PREFIX}-mismatch@example.com`);
-    await page.fill("#password", "password123");
-    await page.fill("#confirm-password", "differentpassword");
-    await page.click('button[type="submit"]');
-
-    // Should show client-side password mismatch error
-    const errorBox = page.locator(".rounded-md.border.bg-muted");
-    await expect(errorBox).toBeVisible({ timeout: 5000 });
-  });
-
-  test("sign-up form has all required fields for new account", async ({
+/**
+ * Sign-up is gated. `onboardingType` defaults to `inviteOnly`
+ * (`packages/backend/convex/onboardingType.ts`), and the self-service form only
+ * renders under `publicSignup`.
+ *
+ * These previously asserted #name / #password / #confirm-password on
+ * /en/sign-up. That form has not existed under the default setting for a long
+ * time, and the tests had been failing unnoticed because SKIP_E2E hid them.
+ * They now cover the gate itself, which is the security-relevant behaviour:
+ * a stranger must not be able to self-register.
+ */
+test.describe("Sign-Up Flow (invitation-gated)", () => {
+  test("offers no self-registration form under the default onboarding type", async ({
     page,
   }) => {
     await page.goto("/en/sign-up");
     await page.waitForLoadState("networkidle");
 
-    // Sign-up requires name, email, password, confirm password
-    await expect(page.locator("#name")).toBeVisible();
-    await expect(page.locator("#email")).toBeVisible();
-    await expect(page.locator("#password")).toBeVisible();
-    await expect(page.locator("#confirm-password")).toBeVisible();
+    await expect(page.getByText(/invitation only/i).first()).toBeVisible({
+      timeout: 15_000,
+    });
 
-    // All should be required
-    await expect(page.locator("#name")).toHaveAttribute("required", "");
-    await expect(page.locator("#email")).toHaveAttribute("required", "");
-    await expect(page.locator("#password")).toHaveAttribute("required", "");
-    await expect(page.locator("#confirm-password")).toHaveAttribute(
-      "required",
-      ""
-    );
+    // No credential fields at all — not a hidden or disabled form.
+    await expect(page.locator("#name")).toHaveCount(0);
+    await expect(page.locator("#password")).toHaveCount(0);
+    await expect(page.locator("#confirm-password")).toHaveCount(0);
+    await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  });
+
+  test("points would-be users at the waitlist instead", async ({ page }) => {
+    await page.goto("/en/sign-up");
+    await page.waitForLoadState("networkidle");
+
+    // The only route forward is the waitlist on the marketing site. Note there
+    // is deliberately no "back to sign in" link here — if one is ever added,
+    // this is the test that should start asserting it.
+    const waitlist = page.getByRole("link", { name: /waitlist/i }).first();
+    await expect(waitlist).toBeVisible({ timeout: 15_000 });
+    await expect(waitlist).toHaveAttribute("href", /.+/);
   });
 });
 

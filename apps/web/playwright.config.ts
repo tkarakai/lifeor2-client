@@ -27,8 +27,10 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
+  // Sharded CI runs emit blob reports that a downstream job merges into one HTML
+  // report; a local run still gets the HTML report directly.
   reporter: process.env.CI
-    ? [["github"], ["html", { outputFolder: "qa/playwright-report" }]]
+    ? [["github"], ["blob"]]
     : [["html", { outputFolder: "qa/playwright-report" }]],
   updateSnapshots: "missing",
   snapshotPathTemplate: "{testDir}/__screenshots__/{projectName}/{testFilePath}/{arg}{ext}",

@@ -1,4 +1,28 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+
+import { signIn } from "./helpers/auth";
+import { createDisposableUser } from "./helpers/fixtures";
+
+/**
+ * Sign in for real. A fabricated `better-auth.session_token` gets past the
+ * proxy (which only checks cookie presence) but not the dashboard layout, which
+ * validates the session server-side — so the page redirected and every
+ * structural assertion below was checking the sign-in page instead. Some of
+ * them "passed" that way, which is worse than failing.
+ */
+async function signInFresh(page: Page): Promise<void> {
+  const user = await createDisposableUser();
+  await signIn(page, user.email, user.password);
+}
+
+/** The live session token, so mocked session lists can mark one as current. */
+async function currentSessionToken(page: Page): Promise<string> {
+  const res = await page.request.get("/api/auth/get-session");
+  const body = (await res.json()) as { session?: { token?: string } } | null;
+  const token = body?.session?.token;
+  if (!token) throw new Error("No active session token — signInFresh() first");
+  return token;
+}
 
 /**
  * Session Management E2E Tests
@@ -41,14 +65,7 @@ test.describe("Session Management Page", () => {
     page,
     context,
   }) => {
-    await context.addCookies([
-      {
-        name: "better-auth.session_token",
-        value: "test-session-token",
-        domain: "localhost",
-        path: "/",
-      },
-    ]);
+    await signInFresh(page);
 
     // Intercept the listSessions API call so the page stays in loading state
     await page.route("**/api/auth/list-sessions", (route) => {
@@ -68,14 +85,7 @@ test.describe("Session Management Page", () => {
     page,
     context,
   }) => {
-    await context.addCookies([
-      {
-        name: "better-auth.session_token",
-        value: "test-session-token",
-        domain: "localhost",
-        path: "/",
-      },
-    ]);
+    await signInFresh(page);
 
     await page.goto("/en/dashboard/settings/sessions");
     await page.waitForLoadState("domcontentloaded");
@@ -89,14 +99,7 @@ test.describe("Session Management Page", () => {
     page,
     context,
   }) => {
-    await context.addCookies([
-      {
-        name: "better-auth.session_token",
-        value: "test-session-token",
-        domain: "localhost",
-        path: "/",
-      },
-    ]);
+    await signInFresh(page);
 
     await page.goto("/en/dashboard/settings/sessions");
     await page.waitForLoadState("domcontentloaded");
@@ -110,14 +113,7 @@ test.describe("Session Management Page", () => {
     page,
     context,
   }) => {
-    await context.addCookies([
-      {
-        name: "better-auth.session_token",
-        value: "test-session-token",
-        domain: "localhost",
-        path: "/",
-      },
-    ]);
+    await signInFresh(page);
 
     await page.goto("/en/dashboard/settings/sessions");
     await page.waitForLoadState("domcontentloaded");
@@ -128,14 +124,7 @@ test.describe("Session Management Page", () => {
   });
 
   test("sessions page includes sidebar", async ({ page, context }) => {
-    await context.addCookies([
-      {
-        name: "better-auth.session_token",
-        value: "test-session-token",
-        domain: "localhost",
-        path: "/",
-      },
-    ]);
+    await signInFresh(page);
 
     await page.goto("/en/dashboard/settings/sessions");
     await page.waitForLoadState("domcontentloaded");
@@ -151,14 +140,8 @@ test.describe("Session Management — mock API responses", () => {
     page,
     context,
   }) => {
-    await context.addCookies([
-      {
-        name: "better-auth.session_token",
-        value: "current-token-123",
-        domain: "localhost",
-        path: "/",
-      },
-    ]);
+    await signInFresh(page);
+    const currentToken = await currentSessionToken(page);
 
     // Mock listSessions to return a session
     await page.route("**/api/auth/list-sessions", async (route) => {
@@ -168,7 +151,7 @@ test.describe("Session Management — mock API responses", () => {
         body: JSON.stringify([
           {
             id: "session-1",
-            token: "current-token-123",
+            token: currentToken,
             userId: "user-1",
             ipAddress: "192.168.1.1",
             userAgent:
@@ -181,25 +164,6 @@ test.describe("Session Management — mock API responses", () => {
       });
     });
 
-    // Mock getSession to identify current session
-    await page.route("**/api/auth/get-session", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          session: {
-            id: "session-1",
-            token: "current-token-123",
-            userId: "user-1",
-          },
-          user: {
-            id: "user-1",
-            name: "Test User",
-            email: "test@example.com",
-          },
-        }),
-      });
-    });
 
     await page.goto("/en/dashboard/settings/sessions");
 
@@ -212,14 +176,8 @@ test.describe("Session Management — mock API responses", () => {
     page,
     context,
   }) => {
-    await context.addCookies([
-      {
-        name: "better-auth.session_token",
-        value: "current-token-123",
-        domain: "localhost",
-        path: "/",
-      },
-    ]);
+    await signInFresh(page);
+    const currentToken = await currentSessionToken(page);
 
     await page.route("**/api/auth/list-sessions", async (route) => {
       await route.fulfill({
@@ -228,7 +186,7 @@ test.describe("Session Management — mock API responses", () => {
         body: JSON.stringify([
           {
             id: "session-1",
-            token: "current-token-123",
+            token: currentToken,
             userId: "user-1",
             ipAddress: "192.168.1.1",
             userAgent:
@@ -252,16 +210,6 @@ test.describe("Session Management — mock API responses", () => {
       });
     });
 
-    await page.route("**/api/auth/get-session", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          session: { id: "session-1", token: "current-token-123", userId: "user-1" },
-          user: { id: "user-1", name: "Test User", email: "test@example.com" },
-        }),
-      });
-    });
 
     await page.goto("/en/dashboard/settings/sessions");
 
@@ -278,14 +226,8 @@ test.describe("Session Management — mock API responses", () => {
     page,
     context,
   }) => {
-    await context.addCookies([
-      {
-        name: "better-auth.session_token",
-        value: "current-token-123",
-        domain: "localhost",
-        path: "/",
-      },
-    ]);
+    await signInFresh(page);
+    const currentToken = await currentSessionToken(page);
 
     await page.route("**/api/auth/list-sessions", async (route) => {
       await route.fulfill({
@@ -294,7 +236,7 @@ test.describe("Session Management — mock API responses", () => {
         body: JSON.stringify([
           {
             id: "session-1",
-            token: "current-token-123",
+            token: currentToken,
             userId: "user-1",
             ipAddress: "192.168.1.1",
             userAgent: "Mozilla/5.0 Chrome/120.0.0.0",
@@ -306,16 +248,6 @@ test.describe("Session Management — mock API responses", () => {
       });
     });
 
-    await page.route("**/api/auth/get-session", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          session: { id: "session-1", token: "current-token-123", userId: "user-1" },
-          user: { id: "user-1", name: "Test User", email: "test@example.com" },
-        }),
-      });
-    });
 
     await page.goto("/en/dashboard/settings/sessions");
 
@@ -332,14 +264,7 @@ test.describe("Session Management — mock API responses", () => {
     page,
     context,
   }) => {
-    await context.addCookies([
-      {
-        name: "better-auth.session_token",
-        value: "current-token-123",
-        domain: "localhost",
-        path: "/",
-      },
-    ]);
+    await signInFresh(page);
 
     // Mock listSessions to fail
     await page.route("**/api/auth/list-sessions", async (route) => {
@@ -350,16 +275,6 @@ test.describe("Session Management — mock API responses", () => {
       });
     });
 
-    await page.route("**/api/auth/get-session", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          session: { id: "session-1", token: "current-token-123", userId: "user-1" },
-          user: { id: "user-1", name: "Test User", email: "test@example.com" },
-        }),
-      });
-    });
 
     await page.goto("/en/dashboard/settings/sessions");
     await page.waitForLoadState("networkidle");
@@ -388,10 +303,13 @@ test.describe("Session Management — route protection", () => {
   }) => {
     await context.addCookies([
       {
+        // The __Secure- prefix is only a valid cookie with secure: true; without
+        // it Chrome rejects the whole addCookies call as "Invalid cookie fields".
         name: "__Secure-better-auth.session_token",
         value: "prod-token-123",
         domain: "localhost",
         path: "/",
+        secure: true,
       },
     ]);
 
