@@ -3,18 +3,20 @@
 **Status as of 2026-09-16.** Written as a handoff: it assumes no prior conversation
 context. Read it end to end before picking up any item below.
 
-**Steps 1–8 are done or in review. Start at step 9.**
+**Steps 1–8 are merged. Start at step 9.**
 
 | Step | State |
 |---|---|
 | 1–5b | merged — PRs #81, #82 |
 | 6 — flip `SKIP_E2E` | done; it is `false`, and E2E now runs in CI on all five apps |
-| 7 — better-auth upgrade | PR **#83**, green and mergeable; merge it if it is still open |
-| 8 — Renovate | PR **#84** open; `RENOVATE_TOKEN` is set. Run the verification dispatch *after* merge |
+| 7 — better-auth upgrade | merged — PR #83 |
+| 8 — Renovate | merged — PR #84. `RENOVATE_TOKEN` is set and `renovate.yml` is on `main`. **The verification dispatch has not been run yet** — see step 8 item 9 |
 | **9 — follow-ups** | **next up**; sized and ordered below. Item 1 also gates how much automerge is worth |
 
-`apps/web` is **105 passed, 0 failed, 0 skipped** on the upgraded auth stack, with nothing
-quarantined. E2E is green across web, admin, landing, landing-static and storybook.
+`apps/web` is **104 passed, 0 failed, 0 skipped** on the upgraded auth stack, with nothing
+quarantined. (An earlier revision of this doc said 105. That was wrong — the run behind it
+still had a leftover scratch spec in `qa/e2e/`. The suite collects 104; confirm with
+`cd apps/web && bunx playwright test --project=chromium --list`.) E2E is green across web, admin, landing, landing-static and storybook.
 
 Two things to know before trusting any of this:
 
@@ -347,8 +349,8 @@ That first run will be the first real validation these specs have ever had.
 ### Step 7 — DONE: the better-auth migration *(was TODO 5)*
 
 **Backup-code sign-in works.** Both quarantined tests pass, and the whole `apps/web`
-suite is **105 passed, 0 failed, 0 skipped** (was 102 passed + 2 skipped on the old
-stack). Typecheck is green across all 6 packages.
+suite is **104 passed, 0 failed, 0 skipped** (was 102 passed + 2 skipped on the old
+stack — same 104 collected, with the two backup-code tests no longer quarantined). Typecheck is green across all 6 packages.
 
 The set that landed — newer than the one originally scoped, because all three can sit on
 the same minor:
@@ -362,9 +364,23 @@ the same minor:
 `@better-auth/passkey@1.7.x` exists but requires `better-auth ^1.7.5`, outside the
 adapter's range — so passkey stays on 1.6 until the adapter widens.
 
-**The nested-copy problem from §1 is gone.** Adapter 0.12.5 nests `better-auth@1.6.33`,
-the same version the workspace resolves, so there is no longer a second divergent copy of
-the auth library.
+**The nested-copy problem from §1 is gone *for web, auth and backend*.** Adapter 0.12.5
+nests `better-auth@1.6.33`, the same version those packages resolve.
+
+**It is NOT gone for `apps/admin`.** An earlier revision of this doc claimed the problem
+was fully solved; that was wrong. `apps/admin/package.json` still pins
+`@convex-dev/better-auth: 0.10.10`, which drags `better-auth@1.4.12` along with it, so the
+second divergent copy is still in `bun.lock`. This is live code —
+`apps/admin/src/components/auth/auth-guard.tsx` imports `usePreloadedAuthQuery` from that
+adapter — so admin and web run different auth libraries today.
+
+Typecheck and E2E are green either way, which is exactly why it went unnoticed: nothing
+fails, the two apps simply disagree. **Open follow-up:** bump `apps/admin` to `0.12.5` in
+its own PR with its own test run. Renovate independently planned the same bump inside
+`renovate/auth-stack`.
+
+The lesson for the next upgrade: check **every** workspace that depends on the package,
+not just the ones the change obviously touches.
 
 **What actually had to change, beyond the version numbers:**
 
@@ -391,14 +407,45 @@ behind, exactly as §1 predicted.
 
 Close dependabot **#77** as superseded.
 
-### Step 8 — Land Renovate *(was TODO 6)* — **PR #84 open**
+### Step 8 — DONE: Renovate landed *(was TODO 6)*
 
 Independent of everything above. Two parts: a code change an agent can do, and one secret
 only the repo owner can create.
 
-**State: PR #84** — rebased onto current `main`, auth-stack grouping rule added,
-`RENOVATE_TOKEN` created 2026-09-16. Originally stranded on branch
-`025-renovate-dependency-automation` (tip `3d363ff`). It adds
+**Merged in PR #84** (2026-09-16): rebased onto `main`, auth-stack grouping rule added,
+`RENOVATE_TOKEN` created. Originally stranded on branch
+`025-renovate-dependency-automation` (tip `3d363ff`).
+
+**The token is under-scoped and Renovate silently does ~12% of its job.** A verification
+dispatch exits `0` but aborts after 4 of 34 branches:
+
+```
+POST /repos/tkarakai/web-app-starter/statuses/<sha> = 403
+  "Resource not accessible by personal access token"
+DEBUG: Caught error setting branch status - aborting
+```
+
+Renovate publishes the release-age hold as a **commit status**, so the PAT needs
+**`Commit statuses: Read and write`** — a permission the table below originally omitted.
+Consequences, all silent: `renovate/auth-stack` is planned but never pushed, and no
+Dependency Dashboard issue is created (the dashboard is written at the *end* of a run).
+
+Add the permission, re-dispatch, then confirm the dashboard issue exists and
+`renovate/auth-stack` is one un-automerged PR.
+
+Two things that *are* confirmed working: the token opens PRs authored by `tkarakai` (so
+`ci-*` workflows trigger, which is the whole reason it is a PAT), and the auth-stack
+grouping applies — Renovate planned `better-auth`, `@better-auth/passkey` and
+`@convex-dev/better-auth` on a single branch, so #74/#77 cannot recur.
+
+Do **not** use the string "Not enough time has elapsed" as an acceptance check; that is
+PR-body text, not log text. Grep the debug log for `pendingVersions` instead.
+
+**One thing is still outstanding:** nobody has run the verification dispatch (item 9
+below). Until someone does, it is unknown whether the token is scoped correctly — the
+first scheduled run is Monday/Thursday 06:00 UTC, and a 401/403 there fails quietly.
+
+It adds
 `renovate.json`, `.github/workflows/renovate.yml`, `docs/dependency-updates.md`, a
 `CLAUDE.md` pointer, and pins GitHub Action digests across the `ci-*` workflows.
 
@@ -457,6 +504,7 @@ so automerge-on-green would merge against a gate that never ran.
    | Workflows | **Read and write** | update `.github/workflows/*` when pinning action digests |
    | Issues | **Read and write** | the Dependency Dashboard issue |
    | Dependabot alerts | **Read-only** | vulnerability-driven updates |
+   | Commit statuses | **Read and write** | publishes the release-age hold; without it the run aborts after ~4 branches while still exiting 0 |
    | Metadata | Read-only | mandatory, auto-selected |
 
 7. **Generate token** and copy it — it is shown once.
@@ -522,13 +570,27 @@ gh api -X PATCH repos/tkarakai/web-app-starter/branches/main/protection/required
 
 Until this lands, a storybook or landing-static regression cannot block a merge.
 
-**2. De-duplicate the sessions UI** *(small, real bug risk)*
+**2. De-duplicate the sessions UI** — **DONE, PR #90**
 
-The same session-list logic exists twice:
-`apps/web/src/components/settings/sessions-list.tsx` and
-`apps/web/src/app/[locale]/(dashboard)/dashboard/settings/sessions/sessions-client.tsx`.
-The route renders the second. Both bugs fixed in #81 had to be fixed twice, and fixing only
-the first looks correct and changes nothing. Pick one, delete the other.
+`SessionsList` is now the single implementation and `sessions-client.tsx` is presentational.
+
+Correcting this entry, because its original wording was misleading and nearly caused a
+working screen to be deleted: it said "the route renders the second", implying the first
+was dead. **Both were live** — `sessions-client.tsx` serves the
+`/dashboard/settings/sessions` route, and `sessions-list.tsx` is rendered by
+`security-section.tsx` as the Security → Sessions tab. They were byte-identical in logic,
+so consolidation was safe, but only after checking rather than trusting the description.
+
+A **third copy** remains: `apps/admin/src/components/settings/admin-sessions-list.tsx`.
+Left alone deliberately — sharing it means promoting the component into
+`@repo/design-system`, which is a bigger job than this item.
+
+**2b. Bump `apps/admin` to `@convex-dev/better-auth` 0.12.5** *(dependency change, own PR)*
+
+Step 7 missed it. Admin still runs adapter 0.10.10 with nested `better-auth@1.4.12` while
+the rest of the workspace is on 0.12.5 / 1.6.33. See step 7 for the detail. Needs its own
+test run — admin has 10 E2E specs and they pass today on the old adapter, so a regression
+there would be the signal.
 
 **3. Audit-trail gaps** from `docs/audit-trail-event-inventory.md`
 
