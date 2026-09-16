@@ -180,27 +180,7 @@ test.describe("TOTP enrolment and challenge", () => {
     await expectSignedIn(page);
   });
 
-    /**
-   * QUARANTINED — backup-code sign-in is broken by the Convex adapter, not by
-   * this test and not by app code.
-   *
-   * `POST /api/auth/two-factor/verify-backup-code` returns HTTP 500 with an
-   * empty body. The Convex log shows `Error: where clause not supported`.
-   *
-   * Root cause: better-auth consumes a backup code with a two-condition where
-   * clause (an optimistic-concurrency check) —
-   *   where: [{ field: "id", ... }, { field: "backupCodes", ... }]
-   * (`better-auth/dist/plugins/two-factor/backup-codes/index.mjs`) — but
-   * `@convex-dev/better-auth@0.10.10` only supports a single `eq` condition and
-   * throws otherwise (`src/client/adapter.ts`, the `update` branch).
-   *
-   * Not fixable here: `packages/backend/convex/betterAuth/adapter.ts` is a thin
-   * re-export of the library's `createApi`.
-   *
-   * This is the acceptance test for the adapter upgrade (0.10.10 -> 0.12.5).
-   * Un-quarantine it there; if it passes, backup-code recovery genuinely works.
-   */
-  test.fixme("accepts a backup code at the challenge and burns it", async ({ page }) => {
+    test("accepts a backup code at the challenge and burns it", async ({ page }) => {
     const user = await createDisposableUser();
     await signIn(page, user.email, user.password);
     const { backupCodes } = await enableTwoFactor(page, user.password);
@@ -236,27 +216,7 @@ test.describe("TOTP enrolment and challenge", () => {
     await expect(page).not.toHaveURL(/\/dashboard/);
   });
 
-    /**
-   * QUARANTINED — backup-code sign-in is broken by the Convex adapter, not by
-   * this test and not by app code.
-   *
-   * `POST /api/auth/two-factor/verify-backup-code` returns HTTP 500 with an
-   * empty body. The Convex log shows `Error: where clause not supported`.
-   *
-   * Root cause: better-auth consumes a backup code with a two-condition where
-   * clause (an optimistic-concurrency check) —
-   *   where: [{ field: "id", ... }, { field: "backupCodes", ... }]
-   * (`better-auth/dist/plugins/two-factor/backup-codes/index.mjs`) — but
-   * `@convex-dev/better-auth@0.10.10` only supports a single `eq` condition and
-   * throws otherwise (`src/client/adapter.ts`, the `update` branch).
-   *
-   * Not fixable here: `packages/backend/convex/betterAuth/adapter.ts` is a thin
-   * re-export of the library's `createApi`.
-   *
-   * This is the acceptance test for the adapter upgrade (0.10.10 -> 0.12.5).
-   * Un-quarantine it there; if it passes, backup-code recovery genuinely works.
-   */
-  test.fixme("regenerating backup codes invalidates the previous set", async ({ page }) => {
+    test("regenerating backup codes invalidates the previous set", async ({ page }) => {
     const user = await createDisposableUser();
     await signIn(page, user.email, user.password);
     const { backupCodes: original } = await enableTwoFactor(page, user.password);

@@ -9,9 +9,9 @@
     "./error-handler": "./src/convex-error-handler.tsx"
   },
   "dependencies": {
-    "@better-auth/passkey": "1.4.12",
-    "@convex-dev/better-auth": "0.10.10",
-    "better-auth": "1.4.12",
+    "@better-auth/passkey": "1.6.33",
+    "@convex-dev/better-auth": "0.12.5",
+    "better-auth": "1.6.33",
     "convex": "1.31.7"
   },
   "peerDependencies": {

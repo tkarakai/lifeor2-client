@@ -1,23 +1,40 @@
 # Auth E2E Coverage & better-auth Upgrade — Working Plan
 
-**Status as of 2026-09-15.** Written as a handoff: it assumes no prior conversation
+**Status as of 2026-09-16.** Written as a handoff: it assumes no prior conversation
 context. Read it end to end before picking up any item below.
 
-**Steps 1–5b are done** (one PR). The `apps/web` E2E suite is green for the first time:
-**102 passed, 2 skipped, 0 failed.** Step 6 is now unblocked and is a repo-settings change
-only the owner can make. Step 7 is the follow-up PR, and it is a bug fix rather than
-housekeeping — backup-code sign-in returns HTTP 500 today, which is what the two remaining
-quarantined tests pin down.
+**Steps 1–8 are done or in review. Start at step 9.**
 
-The through-line: **the `better-auth` stack needs upgrading, and it cannot be done
-safely until the auth flows have real test coverage.** Everything here either builds
-that coverage or is a blocker discovered while building it.
+| Step | State |
+|---|---|
+| 1–5b | merged — PRs #81, #82 |
+| 6 — flip `SKIP_E2E` | done; it is `false`, and E2E now runs in CI on all five apps |
+| 7 — better-auth upgrade | PR **#83**, green and mergeable; merge it if it is still open |
+| 8 — Renovate | PR **#84** open; `RENOVATE_TOKEN` is set. Run the verification dispatch *after* merge |
+| **9 — follow-ups** | **next up**; sized and ordered below. Item 1 also gates how much automerge is worth |
+
+`apps/web` is **105 passed, 0 failed, 0 skipped** on the upgraded auth stack, with nothing
+quarantined. E2E is green across web, admin, landing, landing-static and storybook.
+
+Two things to know before trusting any of this:
+
+- **Run the auth specs with `--workers=1` locally.** The rate-limit throttles are
+  per-process and Playwright workers do not share them; parallel local runs fail in ways
+  that look like product bugs. CI already uses `workers: 1` per shard.
+- **A dev database is not a fresh one.** Two mistakes in this work came from asserting on
+  state a local backend happened to be in (`onboardingType` left on `publicWaitlist`, a
+  stale `out/` directory). If a test passes locally and fails in CI, suspect that first.
 
 ---
 
 ## 1. Why this exists
 
-`@convex-dev/better-auth` is pinned at `0.10.10` and `better-auth` at `1.4.12`. Neither
+> **Historical.** This section describes the situation *before* step 7. The versions below
+> are no longer current — see step 7 for what landed. Kept because the failure modes it
+> documents are exactly what Renovate will reproduce if step 8 lands without the
+> auth-stack grouping rule.
+
+`@convex-dev/better-auth` was pinned at `0.10.10` and `better-auth` at `1.4.12`. Neither
 pin is a compatibility decision — `0.10.10` was published 2026-01-10 and was simply the
 newest release when the project was scaffolded. `next@16.1.5` and `convex@1.31.7` were
 pinned the same way on the same days. Nothing has moved since.
@@ -79,7 +96,7 @@ Lives in `apps/web/qa/e2e/`:
 - `helpers/fixtures.ts` — `createDisposableUser()`.
 - `auth-session.spec.ts` — 6 running.
 - `auth-password.spec.ts` — 7 running.
-- `auth-two-factor.spec.ts` — 4 running, 2 quarantined (adapter, see step 4).
+- `auth-two-factor.spec.ts` — 6 running (the 2 adapter-blocked ones unblocked by step 7).
 - `auth-passkey.spec.ts` — 4 running.
 
 Whole-suite status: **102 passed, 2 skipped, 0 failed** in 5.3 minutes at `--workers=1`.
@@ -305,7 +322,7 @@ exists: the sign-up XSS test now exercises forgot-password, the only other unaut
 form that echoes input back. `email-verification.spec.ts`'s sign-up test now asserts the
 absence of a self-service path instead of the presence of a form.
 
-### Step 6 — Flip `SKIP_E2E` *(was TODO 1)*
+### Step 6 — DONE: `SKIP_E2E` flipped *(was TODO 1)*
 
 **The repo variable `SKIP_E2E` is set to `true`.** Every E2E job in every workflow is
 gated on `vars.SKIP_E2E != 'true'`, so **no E2E test has ever run in CI** — not the ones
@@ -327,39 +344,77 @@ gh api repos/tkarakai/web-app-starter/actions/variables/SKIP_E2E   # inspect
 
 That first run will be the first real validation these specs have ever had.
 
-### Step 7 — The better-auth migration *(was TODO 5)*
+### Step 7 — DONE: the better-auth migration *(was TODO 5)*
 
-Only after steps 4 and 6 give coverage that actually runs. One PR moving all three
-packages together to the set in §1.
+**Backup-code sign-in works.** Both quarantined tests pass, and the whole `apps/web`
+suite is **105 passed, 0 failed, 0 skipped** (was 102 passed + 2 skipped on the old
+stack). Typecheck is green across all 6 packages.
 
-**This is now a bug fix, not housekeeping.** Step 4 established that backup-code sign-in
-returns HTTP 500 on `0.10.10` because the adapter rejects Better Auth's two-condition
-where clause. Backup codes are the documented recovery path for a lost authenticator, so
-today a user who enrols in 2FA and loses their device cannot get back in.
+The set that landed — newer than the one originally scoped, because all three can sit on
+the same minor:
 
-**Acceptance criteria:** un-quarantine the two `test.fixme` cases in
-`auth-two-factor.spec.ts` ("accepts a backup code at the challenge and burns it",
-"regenerating backup codes invalidates the previous set"). If they pass, the adapter
-upgrade genuinely fixed recovery; if they still 500, the upgrade did not deliver the one
-thing that most justifies it. Then `next` → 16.3.3 and `vitest` 3→5 as separate
-PRs — neither is coupled to the auth stack, and vitest 5 is a two-major jump needing its
-own migration.
+| Package | From | To |
+|---|---|---|
+| `@convex-dev/better-auth` | 0.10.10 | **0.12.5** (peer `better-auth >=1.6.11 <1.7.0`) |
+| `better-auth` | 1.4.12 | **1.6.33** |
+| `@better-auth/passkey` | 1.4.12 / ^1.4.18 | **1.6.33** (peer `^1.6.33`) |
+
+`@better-auth/passkey@1.7.x` exists but requires `better-auth ^1.7.5`, outside the
+adapter's range — so passkey stays on 1.6 until the adapter widens.
+
+**The nested-copy problem from §1 is gone.** Adapter 0.12.5 nests `better-auth@1.6.33`,
+the same version the workspace resolves, so there is no longer a second divergent copy of
+the auth library.
+
+**What actually had to change, beyond the version numbers:**
+
+1. **`packages/backend/convex/betterAuth/schema.ts` was stale.** better-auth 1.6 added
+   three fields to the `twoFactor` table — `verified`, `failedVerificationCount` and
+   `lockedUntil`. Convex validators reject unknown fields, so `/two-factor/enable`
+   returned **500 `ArgumentValidationError`** and 2FA enrolment broke outright. Each field
+   surfaced one at a time, one request deeper into the flow.
+
+   The file's header says to regenerate with `@better-auth/cli`, but **that package has no
+   1.6 release** (latest is `1.5.0-beta.13`), and adapter 0.12.5's own bundled schema
+   carries `verified` but neither of the other two. So the fields are hand-added and
+   marked as such — regenerating blindly would drop them.
+
+2. **`packages/auth/src/provider.tsx` needs a cast.** The adapter declares
+   `AuthClient` as `ReturnType<typeof createAuthClient<BetterAuthClientPlugin & { plugins }>>`,
+   an instantiation that collapses `useSession().data` to `never`. No client built with
+   real plugin inference can satisfy it. Documented at the call site; revisit when the
+   adapter's types widen.
+
+Notably, the `$ERROR_CODES` and `viewBackupCodes` errors that dependabot's PRs produced
+never appeared — they were artefacts of bumping `better-auth` while leaving the adapter
+behind, exactly as §1 predicted.
 
 Close dependabot **#77** as superseded.
 
-### Step 8 — Land Renovate *(was TODO 6)*
+### Step 8 — Land Renovate *(was TODO 6)* — **PR #84 open**
 
-Independent of the E2E work; can be picked up in parallel at any point, but the grouping
-rule below must be in place before it is enabled.
+Independent of everything above. Two parts: a code change an agent can do, and one secret
+only the repo owner can create.
 
-Fully implemented but **never merged**: branch `025-renovate-dependency-automation`, tip
-`3d363ff` (2026-07-07), no open PR. It adds `renovate.json`,
-`.github/workflows/renovate.yml`, `docs/dependency-updates.md`, and pinned GitHub Action
-digests. It rebases onto current `main` with zero conflicts.
+**State: PR #84** — rebased onto current `main`, auth-stack grouping rule added,
+`RENOVATE_TOKEN` created 2026-09-16. Originally stranded on branch
+`025-renovate-dependency-automation` (tip `3d363ff`). It adds
+`renovate.json`, `.github/workflows/renovate.yml`, `docs/dependency-updates.md`, a
+`CLAUDE.md` pointer, and pins GitHub Action digests across the `ci-*` workflows.
 
-Renovate fixes the *process* problems dependabot has here — it commits the lockfile, and
-automerge is gated on green CI. It does **not** fix the coupling on its own. Before
-enabling, add a rule so the auth stack can never be split:
+**The rebase no longer applies cleanly.** An earlier version of this doc said "zero
+conflicts" — that is stale, and re-verified as stale on 2026-09-16. Conflict:
+`.github/actions/setup-playwright/action.yml`. The branch changes the browser cache key
+from `hashFiles('**/bun.lockb')` to `hashFiles('**/bun.lock')`; `main` now keys that cache
+on the resolved Playwright version instead, which is strictly better (browser builds are
+tied to the Playwright version, not the lockfile).
+
+**Resolution: keep `main`'s version of that hunk and drop the branch's.** Expect the same
+shape of conflict in the `ci-*.yml` files, where the branch pins action digests and `main`
+has since edited nearby lines — take both changes there (keep `main`'s logic, apply the
+branch's digest pins).
+
+Before enabling, add a rule so the auth stack can never be split:
 
 ```json
 {
@@ -370,35 +425,138 @@ enabling, add a rule so the auth stack can never be split:
 }
 ```
 
-Without it, Renovate proposes `better-auth` alone and reproduces #74/#77 exactly. Note
-that `1.4.12 → 1.6.22` is a *minor* by semver, so it would otherwise match the existing
-automerge rule.
+Without it, Renovate proposes `better-auth` alone and reproduces #74/#77 exactly. Step 7
+is the proof: bumping `better-auth` without the adapter breaks the build, and bumping both
+without reconciling the Convex schema breaks 2FA at runtime. **Also pin `@better-auth/passkey`
+to `<1.7.0`** (or expect the group to fail): 1.7.x requires `better-auth ^1.7.5`, outside
+the adapter's `>=1.6.11 <1.7.0` peer range.
 
-**Still requires a manual step only the repo owner can do:** create the `RENOVATE_TOKEN`
-secret (fine-grained PAT: Contents RW, PRs RW, Workflows RW, Issues RW, Dependabot alerts
-RO).
+Automerge-on-green is now genuinely worth something: `SKIP_E2E` is `false`, so the gate
+Renovate merges against includes the E2E suite. That was not true when this step was
+first written.
 
-Note that automerge-on-green is worth strictly less while `SKIP_E2E` is `true` — the gate
-it merges on does not include E2E. Another reason step 6 matters.
+#### Creating `RENOVATE_TOKEN` — owner only
+
+The workflow needs a **fine-grained PAT**, not the default `GITHUB_TOKEN`. The reason is
+in `renovate.yml`: PRs opened with `GITHUB_TOKEN` do **not** trigger the `ci-*` workflows,
+so automerge-on-green would merge against a gate that never ran.
+
+1. Go to **https://github.com/settings/personal-access-tokens/new**
+   (Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token)
+2. **Token name:** `renovate-web-app-starter`
+3. **Resource owner:** `tkarakai`
+4. **Expiration:** 90 days or custom. Note the date — the workflow starts failing silently
+   when it lapses, and the next agent will not be able to tell that from a config problem.
+5. **Repository access:** *Only select repositories* → `web-app-starter`
+6. **Permissions → Repository permissions:**
+
+   | Permission | Access | Why |
+   |---|---|---|
+   | Contents | **Read and write** | push update branches |
+   | Pull requests | **Read and write** | open, update, automerge PRs |
+   | Workflows | **Read and write** | update `.github/workflows/*` when pinning action digests |
+   | Issues | **Read and write** | the Dependency Dashboard issue |
+   | Dependabot alerts | **Read-only** | vulnerability-driven updates |
+   | Metadata | Read-only | mandatory, auto-selected |
+
+7. **Generate token** and copy it — it is shown once.
+8. Add it as a repository **secret** named exactly `RENOVATE_TOKEN`:
+
+   ```bash
+   gh secret set RENOVATE_TOKEN --repo tkarakai/web-app-starter
+   # paste the token at the prompt, then confirm:
+   gh secret list --repo tkarakai/web-app-starter
+   ```
+
+   Or in the browser: **Settings → Secrets and variables → Actions → New repository secret**
+   (https://github.com/tkarakai/web-app-starter/settings/secrets/actions).
+
+   It is a **secret**, not a variable — do not put it next to `SKIP_E2E`.
+
+9. **Merge the Renovate PR before verifying.** `workflow_dispatch` can only reach a
+   workflow that exists on the **default branch**, so while `renovate.yml` is unmerged you
+   get:
+
+   ```
+   HTTP 404: workflow renovate.yml not found on the default branch
+   ```
+
+   That means the code has not landed, not that the token is wrong. The secret can be
+   created at any time; only this check depends on the merge. Once it is on `main`:
+
+   ```bash
+   gh workflow run renovate.yml --repo tkarakai/web-app-starter -f logLevel=debug
+   gh run watch "$(gh run list --workflow=renovate.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+   ```
+
+   A missing or under-scoped token fails fast with a 401/403 in the "Run Renovate" step.
+
+Also close dependabot **#77** as superseded by step 7.
 
 ### Step 9 — Smaller follow-ups *(was TODO 7)*
 
-Opportunistic; none blocks anything above.
+Opportunistic; none blocks anything else. Roughly in order of value per minute.
 
-- **Add `CI Landing Static Complete` to the branch ruleset's required checks.** The
-  workflow landed in #79 and passed its first run, but is not yet required. Repo-settings
-  change, not a file. Two minutes — do it whenever.
-- **Audit-trail gaps** from `docs/audit-trail-event-inventory.md`: `onboardingType`
-  changes are unaudited (it governs who may create an account at all); no emitters for
-  `auth.passkey.sign_in`, `auth.two_factor.enabled`, `auth.email_verified`,
-  `admin.invitation.revoked`, `user.avatar_changed`; backend admin mutations throw before
-  auditing so failures are invisible; `actor` is a user ID rather than an email in
-  `appSettings.set` and the two `adminAuth.ts` policy mutations.
-  (`auth.two_factor.enabled` does **not** resolve as part of step 1 — the client does
-  reach that code path, so the missing emitter is a genuine backend gap.)
-- **`apps/demo`** has no `.env.local` and no CI, like `landing-static` did. It is
-  described as a static style experiment with no backend, so this may be fine — worth a
-  glance.
+**1. Make the two passing gates required** *(repo settings, ~2 min)*
+
+`CI Landing Static Complete` and `CI Storybook Complete` exist as jobs but are not in the
+branch ruleset. Both were excluded because they had never passed; both pass reliably now.
+Current required set is exactly:
+
+```
+CI Admin Complete, CI Landing Complete, CI Shared Complete, CI Web Complete
+```
+
+Add the two missing ones at
+https://github.com/tkarakai/web-app-starter/settings/branches (ruleset `rule01`), or:
+
+```bash
+gh api -X PATCH repos/tkarakai/web-app-starter/branches/main/protection/required_status_checks \
+  -f 'contexts[]=CI Admin Complete' \
+  -f 'contexts[]=CI Landing Complete' \
+  -f 'contexts[]=CI Shared Complete' \
+  -f 'contexts[]=CI Web Complete' \
+  -f 'contexts[]=CI Landing Static Complete' \
+  -f 'contexts[]=CI Storybook Complete'
+```
+
+Until this lands, a storybook or landing-static regression cannot block a merge.
+
+**2. De-duplicate the sessions UI** *(small, real bug risk)*
+
+The same session-list logic exists twice:
+`apps/web/src/components/settings/sessions-list.tsx` and
+`apps/web/src/app/[locale]/(dashboard)/dashboard/settings/sessions/sessions-client.tsx`.
+The route renders the second. Both bugs fixed in #81 had to be fixed twice, and fixing only
+the first looks correct and changes nothing. Pick one, delete the other.
+
+**3. Audit-trail gaps** from `docs/audit-trail-event-inventory.md`
+
+- `onboardingType` changes are unaudited, and that setting governs who may create an
+  account at all.
+- No emitters for `auth.passkey.sign_in`, `auth.two_factor.enabled`,
+  `auth.email_verified`, `admin.invitation.revoked`, `user.avatar_changed`.
+  Note `auth.two_factor.enabled` is a genuine backend gap — an earlier version of this doc
+  claimed the client never reaches that code path, which is wrong; it does.
+- Backend admin mutations throw before auditing, so failures are invisible.
+- `actor` is a user ID rather than an email in `appSettings.set` and the two `adminAuth.ts`
+  policy mutations.
+
+**4. UX papercuts found while writing the E2E suite** *(product calls, not test problems)*
+
+- **The backup-code challenge does not submit on Enter.** The step is a plain `<div>`, not
+  a `<form>` (`auth-form.tsx`), so the "Verify" button must be clicked. This is in the
+  account-recovery path, where a user is already stressed.
+- **`/sign-up` has no link back to sign-in** under `publicWaitlist`; the only route out is
+  "Join waitlist" to the marketing site. Under the `inviteOnly` default it *does* link to
+  sign-in, so this only bites when onboarding is set to waitlist.
+- **Inconsistent rate-limit copy:** the forgot-password form says "Too many requests.
+  Please try again later." while the sign-in form says "Too many attempts. Please wait a
+  moment before trying again."
+
+**5. `apps/demo`** has no CI. It now gets a `prebuild` asset copy like the other apps, but
+nothing builds or tests it. It is described as a static style experiment with no backend,
+so this may be fine — worth a glance.
 
 ## 4. Traps — things that cost real time
 
@@ -408,11 +566,9 @@ Opportunistic; none blocks anything above.
 test existed before — an attempt produces a login that appears to do nothing, with no
 error.
 
-Four pre-existing specs still use `page.fill` on auth forms and **may be passing
-vacuously**: `auth-flow.spec.ts` (9), `forgot-password.spec.ts` (7),
-`email-verification.spec.ts` (13), `auth-rate-limits.spec.ts` (4). Nearly all assert that
-an error appears — and an empty form produces a validation error too, so they pass
-whether or not the fill worked. See step 3; this must be settled before `SKIP_E2E` flips.
+All auth-form fills now go through `fillStable`. If you add a spec, use it — `page.fill`
+on these inputs fails silently, and a negative-path test ("expect an error") passes either
+way, because an empty form also produces a validation error.
 
 **IDs starting with a digit are invalid CSS selectors.** `#2fa-password` throws; use
 `[id='2fa-password']`.
@@ -465,6 +621,54 @@ renders the second. Fixing only the first looks correct and changes nothing.
 
 **Auth emails go to the Convex server console** when `RESEND_API_KEY` is unset, and
 `dev-start.sh` redirects that to `.convex-dev.log`. `waitForAuthEmail()` scrapes it.
+
+### CI-specific traps
+
+These all cost time on the day E2E first ran on a real runner. Every one of them looked
+like a test failure and was not.
+
+**`dev-start.sh` was macOS-only.** `check_esbuild()` hardcoded `darwin-arm64` in all three
+lookup paths, so on a Linux runner it reported the binary missing and exited before Convex
+started. Now derived from `uname` via `esbuild_platform()`. If you add a platform-specific
+path to that script, this is the shape of bug to avoid.
+
+**Playwright must be installed from the app directory.** There is no `playwright` binary at
+the repo root, so `bunx playwright install` there fetches the *latest* from npm and
+downloads a browser build the pinned version cannot use — surfacing much later as
+`Executable doesn't exist at .../chromium_headless_shell-<n>/`. `setup-playwright` now
+takes a required `working-directory` and runs that workspace's own binary.
+
+**`convex dev` downloads its backend from GitHub unauthenticated.** Four shards booting at
+once hit `403 API rate limit exceeded`. Mitigated by caching `~/.convex` and staggering
+shard startup. If you raise the shard count, re-check this.
+
+**Playwright discards `webServer` stdout by default.** Without `stdout: "pipe"` a boot
+failure is just `Process from config.webServer was not able to start. Exit code: 1` with no
+diagnostics. All five configs now pipe it. Do not remove that.
+
+**npm-script pre-hooks do not run when CI calls the tool directly.** `pretest:e2e` and
+`predev` seed env files and copy shared assets, but CI runs `bunx playwright test` and
+`bun run build` directly. Anything a local run gets from a hook has to be reachable from
+`dev-start.sh` or the app's own `prebuild`.
+
+**`apps/*/public/icon.svg` is gitignored.** It is produced by `copy-shared-assets.sh`, so a
+fresh checkout never has it. Every app now runs that script in its own `prebuild` — a build
+on a clean machine shipped without the icon before that.
+
+**Convex's `SITE_URL` is a comma-separated trusted-origin list.** `dev-start.sh` used to
+sync it for the web app only, so starting landing alone left its origin untrusted and every
+browser call to the Convex HTTP router failed CORS. It now merges the starting app's origin
+into whatever is already set.
+
+**`waitForLoadState("networkidle")` never resolves on an authenticated page.** Convex holds
+a live websocket open, so the network never goes idle and the wait burns the whole test
+timeout. Wait for a concrete element instead.
+
+**A fabricated `better-auth.session_token` cookie is not a session.** It satisfies the
+proxy, which only checks presence, but not the dashboard layout, which validates
+server-side. Tests that "authenticate" that way run against `/sign-in` — strict assertions
+fail, and lenient ones pass vacuously, which is worse. Use `createDisposableUser()` and a
+real sign-in.
 
 **A poisoned dev-seed account breaks local development,** not just tests. If sign-in
 starts demanding a 2FA code you never set up, wipe the backend:
