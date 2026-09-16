@@ -100,7 +100,7 @@ jobs:
               - 'packages/design-system/**'
               - 'packages/auth/**'
               - 'package.json'
-              - 'bun.lockb'
+              - 'bun.lock'
               - 'turbo.json'
               - 'tsconfig.base.json'
             admin:
@@ -109,20 +109,20 @@ jobs:
               - 'packages/design-system/**'
               - 'packages/auth/**'
               - 'package.json'
-              - 'bun.lockb'
+              - 'bun.lock'
               - 'turbo.json'
               - 'tsconfig.base.json'
             landing:
               - 'apps/landing/**'
               - 'packages/design-system/**'
               - 'package.json'
-              - 'bun.lockb'
+              - 'bun.lock'
               - 'turbo.json'
               - 'tsconfig.base.json'
             backend:
               - 'packages/backend/**'
               - 'package.json'
-              - 'bun.lockb'
+              - 'bun.lock'
               - 'turbo.json'
               - 'tsconfig.base.json'
 

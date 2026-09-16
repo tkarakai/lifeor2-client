@@ -49,7 +49,7 @@ jobs:
               - 'packages/auth/**'
             root:
               - 'package.json'
-              - 'bun.lockb'
+              - 'bun.lock'
               - 'turbo.json'
               - 'tsconfig.base.json'
               - 'eslint.config.mjs'

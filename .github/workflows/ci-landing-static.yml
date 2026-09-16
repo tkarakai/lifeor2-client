@@ -1,4 +1,4 @@
-name: CI Web
+name: CI Landing Static
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
   workflow_call:
 
 concurrency:
-  group: ci-web-${{ github.ref }}
+  group: ci-landing-static-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -39,14 +39,12 @@ jobs:
         id: filter
         with:
           filters: |
-            web:
-              - 'apps/web/**'
-            backend:
-              - 'packages/backend/**'
+            landing-static:
+              - 'apps/landing-static/**'
             design-system:
               - 'packages/design-system/**'
-            auth:
-              - 'packages/auth/**'
+            i18n:
+              - 'packages/i18n/**'
             root:
               - 'package.json'
               - 'bun.lock'
@@ -59,15 +57,14 @@ jobs:
         if: ${{ !env.ACT }}
         id: evaluate
         run: |
-          if [[ "${{ steps.filter.outputs.web }}" == "true" ]] || \
-             [[ "${{ steps.filter.outputs.backend }}" == "true" ]] || \
+          if [[ "${{ steps.filter.outputs.landing-static }}" == "true" ]] || \
              [[ "${{ steps.filter.outputs.design-system }}" == "true" ]] || \
-             [[ "${{ steps.filter.outputs.auth }}" == "true" ]] || \
+             [[ "${{ steps.filter.outputs.i18n }}" == "true" ]] || \
              [[ "${{ steps.filter.outputs.root }}" == "true" ]]; then
             echo "should_run=true" >> $GITHUB_OUTPUT
           else
             echo "should_run=false" >> $GITHUB_OUTPUT
-            echo "Skipping web — no relevant changes"
+            echo "Skipping landing-static — no relevant changes"
           fi
 
   # ============================================================
@@ -83,24 +80,24 @@ jobs:
       - uses: ./.github/actions/setup-bun
 
       - name: Run Bun tests
-        run: cd apps/web && bun run test
+        run: cd apps/landing-static && bun run test
 
       - name: Run Vitest with coverage
-        run: cd apps/web && bun run test:coverage
+        run: cd apps/landing-static && bun run test:coverage
 
       - name: Display coverage summary
         if: always()
         run: |
-          JOB_DIR="/act-artifacts/web/test"
+          JOB_DIR="/act-artifacts/landing-static/test"
           if [ -n "$ACT" ]; then
             mkdir -p "$JOB_DIR"
             SUMMARY_FILE="$JOB_DIR/step-summary.md"
           else
             SUMMARY_FILE="$GITHUB_STEP_SUMMARY"
           fi
-          COVERAGE_FILE="apps/web/qa/coverage/coverage-summary.json"
+          COVERAGE_FILE="apps/landing-static/qa/coverage/coverage-summary.json"
           if [ -f "$COVERAGE_FILE" ]; then
-            echo "## Coverage Summary (web)" >> "$SUMMARY_FILE"
+            echo "## Coverage Summary (landing-static)" >> "$SUMMARY_FILE"
             echo "" >> "$SUMMARY_FILE"
             echo "| Metric | Coverage |" >> "$SUMMARY_FILE"
             echo "|--------|----------|" >> "$SUMMARY_FILE"
@@ -115,16 +112,16 @@ jobs:
         if: ${{ always() && !env.ACT }}
         continue-on-error: true
         with:
-          name: coverage-report-web
-          path: apps/web/qa/coverage/
+          name: coverage-report-landing-static
+          path: apps/landing-static/qa/coverage/
           retention-days: 7
 
       - name: Save job outputs (act)
         if: ${{ always() && env.ACT }}
         run: |
-          JOB_DIR="/act-artifacts/web/test"
+          JOB_DIR="/act-artifacts/landing-static/test"
           mkdir -p "$JOB_DIR/artifacts"
-          [ -d "apps/web/qa/coverage" ] && cp -r "apps/web/qa/coverage" "$JOB_DIR/artifacts/coverage-web" 2>/dev/null || true
+          [ -d "apps/landing-static/qa/coverage" ] && cp -r "apps/landing-static/qa/coverage" "$JOB_DIR/artifacts/coverage-landing-static" 2>/dev/null || true
 
   # ============================================================
   # BUILD & BUNDLE SIZE
@@ -138,16 +135,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-bun
 
+      # robots.ts, sitemap.ts and [locale]/layout.tsx throw when
+      # NEXT_PUBLIC_SITE_URL is unset, so the build needs it supplied here.
       - name: Build
-        run: bunx turbo build --filter=@repo/web...
+        run: bunx turbo build --filter=@repo/landing-static...
         env:
-          NEXT_PUBLIC_CONVEX_URL: "https://placeholder.convex.cloud"
-          NEXT_PUBLIC_CONVEX_SITE_URL: "https://placeholder.convex.site"
-          NEXT_PUBLIC_SITE_URL: "http://localhost:3001"
-          NEXT_PUBLIC_LANDING_URL: "http://localhost:3000"
+          NEXT_PUBLIC_SITE_URL: "http://localhost:3004"
+          NEXT_PUBLIC_WEB_APP_URL: "http://localhost:3001"
 
       - name: Check bundle size
-        run: cd apps/web && bun run size
+        run: cd apps/landing-static && bun run size
 
   # ============================================================
   # E2E TESTS
@@ -164,51 +161,39 @@ jobs:
       - uses: ./.github/actions/setup-playwright
 
       - name: Run Playwright tests
-        run: cd apps/web && bunx playwright test --project=chromium
+        run: cd apps/landing-static && bunx playwright test --project=chromium
         env:
           CI: true
+          NEXT_PUBLIC_SITE_URL: "http://localhost:3004"
+          NEXT_PUBLIC_WEB_APP_URL: "http://localhost:3001"
 
       - name: Show dev logs on failure
         if: failure()
         run: |
-          echo "=== Convex Dev Log ==="
-          cat .convex-dev.log 2>/dev/null || echo "No Convex log found"
-          echo ""
-          echo "=== Next.js Dev Log (web) ==="
-          cat .next-web.log 2>/dev/null || echo "No Next.js log found"
+          echo "=== Next.js Dev Log (landing-static) ==="
+          cat .next-landing-static.log 2>/dev/null || echo "No Next.js log found"
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
         if: ${{ always() && !env.ACT }}
         continue-on-error: true
         with:
-          name: playwright-report-web
-          path: apps/web/qa/playwright-report/
+          name: playwright-report-landing-static
+          path: apps/landing-static/qa/playwright-report/
           retention-days: 7
-
-      - name: Upload visual snapshots
-        uses: actions/upload-artifact@v4
-        if: ${{ always() && !env.ACT }}
-        continue-on-error: true
-        with:
-          name: visual-snapshots-web
-          path: apps/web/qa/e2e/__screenshots__/
-          retention-days: 7
-          if-no-files-found: ignore
 
       - name: Save job outputs (act)
         if: ${{ always() && env.ACT }}
         run: |
-          JOB_DIR="/act-artifacts/web/e2e"
+          JOB_DIR="/act-artifacts/landing-static/e2e"
           mkdir -p "$JOB_DIR/artifacts"
-          [ -d "apps/web/qa/playwright-report" ] && cp -r "apps/web/qa/playwright-report" "$JOB_DIR/artifacts/playwright-report-web" 2>/dev/null || true
-          [ -d "apps/web/qa/e2e/__screenshots__" ] && cp -r "apps/web/qa/e2e/__screenshots__" "$JOB_DIR/artifacts/visual-snapshots-web" 2>/dev/null || true
+          [ -d "apps/landing-static/qa/playwright-report" ] && cp -r "apps/landing-static/qa/playwright-report" "$JOB_DIR/artifacts/playwright-report-landing-static" 2>/dev/null || true
 
   # ============================================================
   # SUMMARY
   # ============================================================
-  ci-web-complete:
-    name: CI Web Complete
+  ci-landing-static-complete:
+    name: CI Landing Static Complete
     runs-on: ubuntu-latest
     needs: [changes, test, build, e2e]
     if: always()
@@ -220,9 +205,8 @@ jobs:
           echo "Build: ${{ needs.build.result }}"
           echo "E2E: ${{ needs.e2e.result }}"
 
-          # If no relevant changes, all jobs are skipped — that's success
           if [[ "${{ needs.changes.outputs.should_run }}" != "true" ]]; then
-            echo "No relevant changes — skipping web CI"
+            echo "No relevant changes — skipping landing-static CI"
             exit 0
           fi
 
@@ -236,11 +220,10 @@ jobs:
             exit 1
           fi
 
-          # E2E must succeed or be skipped (skipped for draft PRs)
           E2E="${{ needs.e2e.result }}"
           if [[ "$E2E" != "success" && "$E2E" != "skipped" ]]; then
             echo "E2E failed: $E2E"
             exit 1
           fi
 
-          echo "All web CI jobs passed"
+          echo "All landing-static CI jobs passed"
