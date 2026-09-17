@@ -1,3 +1,11 @@
+# LifeOR2 Client scope
+
+This is the independent `lifeor2-client` repository. Read [docs/PRD.md](docs/PRD.md) for the product direction and [README.md](README.md) for current project status. The current deliverable is a PRD and imported starter, not an implemented client.
+
+The conventions below are inherited from `web-app-starter`. Its topic guides remain useful implementation references, but upstream roadmaps and “active work tracker” notes are historical context, not tasks for this client. Product scope and subsequent user instructions take precedence.
+
+---
+
 # Project Conventions for AI Agents
 
 This document provides project-specific guidance for AI agents working on this codebase. **Topic-specific guides** are linked at the bottom — read them when working on those areas.
