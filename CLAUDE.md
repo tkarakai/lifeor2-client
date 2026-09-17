@@ -1,6 +1,8 @@
 # LifeOR2 Client scope
 
-This is the independent `lifeor2-client` repository. Read [docs/PRD.md](docs/PRD.md) for the product direction and [README.md](README.md) for current project status. The current deliverable is a PRD and imported starter, not an implemented client.
+Follow [CONTRIBUTING.md](CONTRIBUTING.md) for feature branches, pull requests, CI, and squash or rebase merges. Do not commit or push directly to `main`.
+
+This is the independent `lifeor2-client` repository. Read [docs/PRD.md](docs/PRD.md) for the product direction and [README.md](README.md) for current project status. The phase-one text client is implemented in `apps/web` and `packages/backend/convex/lifeor*`. Read [docs/lifeor2-integration.md](docs/lifeor2-integration.md) for the source-contract reference and setup, and [docs/implementation-status.md](docs/implementation-status.md) for validation still required. Voice remains a later milestone.
 
 The conventions below are inherited from `web-app-starter`. Its topic guides remain useful implementation references, but upstream roadmaps and “active work tracker” notes are historical context, not tasks for this client. Product scope and subsequent user instructions take precedence.
 
@@ -34,7 +36,7 @@ bun run dev:landing          # Landing page only (port 3000, no Convex)
 bun run dev:landing-static   # Static landing page (port 3004, no Convex)
 bun run dev:storybook        # Component storybook only (port 3003, no Convex)
 bun run dev:stop             # Stop all services
-bun run dev:nuke-all         # Kill ALL node/convex processes across all worktrees
+bun run dev:nuke-all         # Stop verified dev services across this repo’s worktrees
 bun run dev:status           # Show running processes
 
 # Run all CI checks locally before pushing (recommended!)

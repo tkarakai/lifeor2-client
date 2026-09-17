@@ -3,9 +3,12 @@ import { v } from "convex/values";
 import { migrationsTable } from "convex-helpers/server/migrations";
 import { rateLimitTables } from "convex-helpers/server/rateLimit";
 
+import { lifeorTables } from "./lifeorSchema";
+
 export default defineSchema(
 {
   ...rateLimitTables,
+  ...lifeorTables,
 
   // --- Migrations state (convex-helpers framework) ---
   migrations: migrationsTable,

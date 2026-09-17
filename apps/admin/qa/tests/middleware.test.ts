@@ -55,7 +55,7 @@ describe("proxy", () => {
   describe("protected routes (authenticated)", () => {
     it("allows /dashboard with dev session cookie", () => {
       const response = proxy(
-        createRequest("/dashboard", { "better-auth.session_token": "token-123" })
+        createRequest("/dashboard", { "lifeor2-client.session_token": "token-123" })
       );
 
       expect(response.status).toBe(200);
@@ -64,7 +64,7 @@ describe("proxy", () => {
     it("allows /dashboard with production session cookie (__Secure- prefix)", () => {
       const response = proxy(
         createRequest("/dashboard", {
-          "__Secure-better-auth.session_token": "token-123",
+          "__Secure-lifeor2-client.session_token": "token-123",
         })
       );
 
@@ -73,7 +73,7 @@ describe("proxy", () => {
 
     it("allows /settings with dev session cookie", () => {
       const response = proxy(
-        createRequest("/settings", { "better-auth.session_token": "token-123" })
+        createRequest("/settings", { "lifeor2-client.session_token": "token-123" })
       );
 
       expect(response.status).toBe(200);
@@ -91,7 +91,7 @@ describe("proxy", () => {
   describe("auth routes (authenticated)", () => {
     it("redirects /sign-in to /dashboard when session cookie exists", () => {
       const response = proxy(
-        createRequest("/sign-in", { "better-auth.session_token": "token-123" })
+        createRequest("/sign-in", { "lifeor2-client.session_token": "token-123" })
       );
 
       expect(response.status).toBe(307);
@@ -101,7 +101,7 @@ describe("proxy", () => {
     it("allows /sign-in with session_cleared param even when session cookie exists", () => {
       const response = proxy(
         createRequest("/sign-in?session_cleared=1", {
-          "better-auth.session_token": "token-123",
+          "lifeor2-client.session_token": "token-123",
         })
       );
 
@@ -112,7 +112,7 @@ describe("proxy", () => {
     it("allows /sign-in with session_cleared param and __Secure- cookie", () => {
       const response = proxy(
         createRequest("/sign-in?session_cleared=1", {
-          "__Secure-better-auth.session_token": "token-123",
+          "__Secure-lifeor2-client.session_token": "token-123",
         })
       );
 
@@ -239,5 +239,13 @@ describe("proxy", () => {
       expect(response.status).toBe(307);
       expect(new URL(response.headers.get("location")!).pathname).toBe("/sign-in");
     });
+  });
+});
+
+
+describe("independent LifeOR2 login", () => {
+  it("does not treat another app's cookie as a client login", () => {
+    const response = proxy(createRequest("/dashboard", { "better-auth.session_token": "foreign-session" }));
+    expect(response.headers.get("location")).toContain("/sign-in");
   });
 });

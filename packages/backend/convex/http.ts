@@ -17,7 +17,10 @@ import {
   parseOnboardingType,
 } from "./onboardingType";
 
+import { gateway } from "./lifeorHttp";
+
 const http = httpRouter();
+http.route({ path: "/lifeor/store", method: "POST", handler: gateway });
 
 authComponent.registerRoutes(http, createAuth);
 

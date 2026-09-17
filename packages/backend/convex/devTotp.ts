@@ -1,9 +1,10 @@
+import { isLocalDevelopment } from "./developmentOnly";
 import { httpAction } from "./_generated/server";
 
 export const getDevTotpCode = httpAction(async () => {
   const devEnabled = process.env.DEV_SEED_ENABLED;
 
-  if (!devEnabled) {
+  if (devEnabled !== "true" || !isLocalDevelopment()) {
     return new Response(JSON.stringify({ error: "Not available" }), {
       status: 404,
       headers: { "Content-Type": "application/json" },

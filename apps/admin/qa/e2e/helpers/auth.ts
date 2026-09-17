@@ -2,7 +2,7 @@
  * Authenticated E2E helpers for the admin app.
  *
  * Admin specs used to "authenticate" by planting a fabricated
- * `better-auth.session_token` cookie. That satisfies the proxy, which only
+ * `lifeor2-client.session_token` cookie. That satisfies the proxy, which only
  * checks the cookie is present, but not the dashboard layout, which validates
  * the session server-side — so every such test actually landed on /sign-in.
  * Strict assertions failed; lenient ones passed vacuously, which is worse.

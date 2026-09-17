@@ -1,3 +1,4 @@
+import { isLocalDevelopment } from "./developmentOnly";
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
@@ -131,7 +132,7 @@ export const seed = internalAction({
   args: {},
   handler: async (ctx) => {
     // Guard: only run when explicitly enabled
-    if (process.env.DEV_SEED_ENABLED !== "true") {
+    if ((process.env.DEV_SEED_ENABLED !== "true" || !isLocalDevelopment())) {
       console.log("[devSeed] DEV_SEED_ENABLED is not 'true', skipping");
       return;
     }

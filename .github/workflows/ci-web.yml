@@ -143,7 +143,7 @@ jobs:
         env:
           NEXT_PUBLIC_CONVEX_URL: "https://placeholder.convex.cloud"
           NEXT_PUBLIC_CONVEX_SITE_URL: "https://placeholder.convex.site"
-          NEXT_PUBLIC_SITE_URL: "http://localhost:3001"
+          NEXT_PUBLIC_SITE_URL: "http://localhost:3002"
           NEXT_PUBLIC_LANDING_URL: "http://localhost:3000"
 
       - name: Check bundle size

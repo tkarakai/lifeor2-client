@@ -10,6 +10,7 @@
     "test:convex": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
+    "@repo/auth": "workspace:*",
     "@better-auth/passkey": "1.6.33",
     "@zxcvbn-ts/core": "^3.0.4",
     "@zxcvbn-ts/language-common": "^3.0.4",

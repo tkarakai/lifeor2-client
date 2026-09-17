@@ -117,13 +117,12 @@ export function getClientIp(request: NextRequest): string {
 
 /**
  * Quick cookie-presence check (Edge-compatible, no backend call).
- * Better Auth names the cookie `better-auth.session_token` in dev (HTTP)
- * and `__Secure-better-auth.session_token` in production (HTTPS).
+ * Match the app's configured cookie prefix, with the HTTPS variant as well.
  */
-export function hasSessionCookie(request: NextRequest): boolean {
+export function hasSessionCookie(request: NextRequest, prefix = "better-auth"): boolean {
   return request.cookies
     .getAll()
-    .some((c) => c.name.endsWith("better-auth.session_token"));
+    .some((c) => c.name === `${prefix}.session_token` || c.name === `__Secure-${prefix}.session_token`);
 }
 
 /** Build a 429 "Too Many Requests" response with standard rate-limit headers. */

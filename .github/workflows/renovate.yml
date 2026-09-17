@@ -32,16 +32,26 @@ permissions:
 jobs:
   renovate:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Check Renovate credentials
+        env:
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+        run: |
+          if [ -z "$RENOVATE_TOKEN" ]; then
+            echo "::error::Add the repository-scoped RENOVATE_TOKEN Actions secret. See docs/dependency-updates.md."
+            exit 1
+          fi
 
       - name: Run Renovate
         uses: renovatebot/github-action@b50d2ba2bd928235abdcc14d06dfafc217f1c565 # v46.1.18
         with:
           configurationFile: renovate.json
           # RENOVATE_TOKEN must be a fine-grained PAT (or GitHub App token), NOT the
-          # default GITHUB_TOKEN — otherwise Renovate's PRs won't trigger the ci-* workflows.
+          # default GITHUB_TOKEN — otherwise Renovate's PRs won't trigger LifeOR2 validation.
           token: ${{ secrets.RENOVATE_TOKEN }}
         env:
           # Autodiscover is off: operate only on this repo.

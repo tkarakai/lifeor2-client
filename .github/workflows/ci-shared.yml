@@ -70,6 +70,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-bun
 
+      - name: Test development process isolation
+        run: bun run test:dev-scripts
+
       - name: Run TypeScript check
         run: bunx turbo typecheck
 

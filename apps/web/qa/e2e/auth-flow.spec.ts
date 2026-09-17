@@ -129,7 +129,7 @@ test.describe("Auth Route Guards", () => {
     // will trigger the redirect to /dashboard.
     await context.addCookies([
       {
-        name: "better-auth.session_token",
+        name: "lifeor2-client.session_token",
         value: "fake-session-token",
         domain: "localhost",
         path: "/",
@@ -160,7 +160,7 @@ test.describe("Auth Route Guards", () => {
   }) => {
     await context.addCookies([
       {
-        name: "better-auth.session_token",
+        name: "lifeor2-client.session_token",
         value: "fake-session-token",
         domain: "localhost",
         path: "/",

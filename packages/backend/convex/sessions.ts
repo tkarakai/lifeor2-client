@@ -1,5 +1,7 @@
 import { httpAction } from "./_generated/server";
 import { createAuth } from "./auth";
+import { getSessionCookie } from "better-auth/cookies";
+import { AUTH_COOKIE_PREFIX } from "@repo/auth/cookies";
 import { parseUserAgent } from "./parseUserAgent";
 import type { DeviceInfo } from "./parseUserAgent";
 
@@ -77,9 +79,7 @@ function getSessionToken(request: Request): string | null {
     return authHeader.slice(7);
   }
   // Check cookie
-  const cookies = request.headers.get("cookie") ?? "";
-  const match = cookies.match(/better-auth\.session_token=([^;]+)/);
-  return match?.[1] ?? null;
+  return getSessionCookie(request.headers, { cookiePrefix: AUTH_COOKIE_PREFIX });
 }
 
 // ---------------------------------------------------------------------------

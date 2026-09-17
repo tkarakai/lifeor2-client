@@ -1,3 +1,4 @@
+import { assertMockEmailAllowed } from "./developmentOnly";
 import { Resend } from "resend";
 
 // ---------------------------------------------------------------------------
@@ -46,6 +47,7 @@ export async function sendAuthEmail(opts: SendAuthEmailOptions): Promise<void> {
   const urlOrCode = type !== "custom" ? opts.urlOrCode : undefined;
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
+    assertMockEmailAllowed();
     // Development fallback — log to server console with clear formatting
     console.log(
       `\n` +

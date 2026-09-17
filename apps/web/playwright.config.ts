@@ -47,7 +47,7 @@ export default defineConfig({
     },
   },
   use: {
-    baseURL: getEnvValue("NEXT_PUBLIC_SITE_URL", "http://localhost:3001"),
+    baseURL: getEnvValue("NEXT_PUBLIC_SITE_URL", "http://localhost:3002"),
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
@@ -64,7 +64,7 @@ export default defineConfig({
     // start. Exit code: 1" and nothing else — no way to tell what broke.
     stdout: "pipe",
     stderr: "pipe",
-    url: getEnvValue("NEXT_PUBLIC_SITE_URL", "http://localhost:3001"),
+    url: getEnvValue("NEXT_PUBLIC_SITE_URL", "http://localhost:3002"),
     reuseExistingServer: !process.env.CI,
     timeout: 180 * 1000,
   },

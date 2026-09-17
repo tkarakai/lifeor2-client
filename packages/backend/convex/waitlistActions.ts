@@ -1,3 +1,4 @@
+import { assertMockEmailAllowed } from "./developmentOnly";
 import { Resend } from "resend";
 import { v } from "convex/values";
 
@@ -76,6 +77,7 @@ export const generateTokenAndSendEmail = internalAction({
     // Send invitation email via Resend
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
+    assertMockEmailAllowed();
       // In development without Resend configured, log the URL instead
       console.log(
         `[waitlist] Invitation email (no RESEND_API_KEY configured):\n` +
