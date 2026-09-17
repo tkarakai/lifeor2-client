@@ -7,6 +7,7 @@ The phase-one text implementation includes dataset-bound chat, durable history, 
 - [Product requirements](docs/PRD.md)
 - [Setup, LifeOR2 source reference, configuration and operations](docs/lifeor2-integration.md)
 - [Implementation evidence and remaining release validation](docs/implementation-status.md)
+- [Contributing and pull request workflow](CONTRIBUTING.md)
 
 ```sh
 bun install --frozen-lockfile

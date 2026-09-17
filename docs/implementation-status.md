@@ -18,8 +18,9 @@ Validation run on 2026-09-16: 76 Bun unit/integration tests, 188 Convex tests,
 TypeScript checks and the production web build pass. Web lint has zero errors
 and ten pre-existing unused-variable warnings in inherited tests.
 
-The manual `.github/workflows/ci-lifeor.yml` runs product checks without requiring
-production credentials. It does not enable Actions or deploy the application.
+`.github/workflows/ci-lifeor.yml` runs product checks on pull requests and pushes
+to `main`, with manual dispatch also available, without production credentials.
+It does not deploy the application. See `CONTRIBUTING.md` for merge requirements.
 
 ## Acceptance evidence
 
@@ -43,6 +44,6 @@ production credentials. It does not enable Actions or deploy the application.
 3. In a disposable LifeOR2 dataset, read, create, edit with a stale revision, retry an identical write, cancel then confirm permanent deletion, and observe another LifeOR2 UI update.
 4. Exercise expired/revoked grants, denied scopes, removed datasets, interrupted refresh and server restart while a write is in flight. Confirm that no write or confirmation is automatically replayed.
 5. Run browser checks against the real connected system, including multiple devices, expired client sessions, Safari and Firefox.
-6. Validate the production HTTPS/tunnel setup and a backup restore. Configure the documented backup expiry in the actual provider. Enable repository workflows only when its infrastructure is configured.
+6. Validate the production HTTPS/tunnel setup and a backup restore. Configure the documented backup expiry in the actual provider. Enable inherited deployment workflows only when their infrastructure is configured.
 
 Current scope boundaries: one app instance; up to 200 conversations and 20 turns per conversation; dataset-scoped operations only; new grants require new conversations. The new workspace copy is English; existing localized authentication/account screens are retained. Voice, multi-instance coordination and unscoped dataset creation are not shipped here.

@@ -1,14 +1,22 @@
 name: LifeOR2 client validation
 
-# Deliberately manual until this repository's Actions/deployment setup is enabled.
 on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: lifeor-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
+    name: LifeOR2 validation
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -16,19 +24,30 @@ jobs:
       NEXT_PUBLIC_CONVEX_URL: http://127.0.0.1:3210
       NEXT_PUBLIC_CONVEX_SITE_URL: http://127.0.0.1:3211
       NEXT_PUBLIC_LANDING_URL: http://localhost:3000
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-bun
         with:
           bun-version: 1.3.9
           node-version: 22
+      - run: bun run test:dev-scripts
       - run: bun run --cwd apps/web lint
       - run: bun run --cwd apps/web typecheck
       - run: bun run --cwd apps/web test
+      - run: bun run --cwd apps/web test:unit
       - run: bun run --cwd packages/backend test:convex
       - run: bun run --cwd apps/web build
       - run: bunx playwright install --with-deps chromium
         working-directory: apps/web
-      - run: bun run --cwd apps/web test:e2e -- qa/e2e/lifeor-workspace.spec.ts --workers=1 --reporter=line
+      - run: bun run --cwd apps/web test:e2e -- qa/e2e/lifeor-workspace.spec.ts qa/e2e/lifeor-session-isolation.spec.ts --workers=1 --reporter=line
+      - name: Upload browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lifeor-browser-results
+          path: apps/web/qa/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
       # Live inference and authorized LifeOR2 data checks are operator-run;
       # never put production grants or inference keys in untrusted PR jobs.
