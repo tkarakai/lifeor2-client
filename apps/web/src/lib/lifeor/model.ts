@@ -90,9 +90,10 @@ export function makeAgent(
   const memory = new WorkingContext(
     c,
     async (text, signal) => {
+      const summaryTokens = Math.min(1024, Math.floor(c.context * 0.1));
       const { stream, exchange } = generate(
         {
-          systemPrompt: SUMMARY_PROMPT,
+          systemPrompt: `${SUMMARY_PROMPT} Use at most ${Math.floor(summaryTokens / 2)} words and stay within ${summaryTokens} tokens.`,
           messages: [{ role: "user", content: text, timestamp: Date.now() }],
         },
         { signal, maxTokens: Math.min(1024, Math.floor(c.context * 0.1)) },

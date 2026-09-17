@@ -42,8 +42,7 @@ export function ContextMeter({
             ? "Usage was reported by the model provider."
             : "This is an estimate of the working context."}{" "}
           Instructions and tools are included. It excludes your unsent draft.
-          Older context is summarized automatically; original history stays
-          saved.
+          Compaction summarizes older context; original history stays saved.
         </p>
       </details>
     </div>
