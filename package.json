@@ -41,7 +41,8 @@
     "ci:act:quick": "./scripts/ci-local-act.sh -q",
     "ci:act:offline": "./scripts/ci-local-act.sh -o",
     "infra:setup:staging": "./scripts/infra-setup-staging.sh",
-    "ensure-env": "./scripts/ensure-app-env.sh"
+    "ensure-env": "./scripts/ensure-app-env.sh",
+    "test:dev-scripts": "python3 -m unittest discover -s scripts/tests -v"
   },
   "overrides": {
     "react": "19.2.3",

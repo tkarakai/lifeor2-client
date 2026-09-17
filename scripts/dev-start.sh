@@ -12,6 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PID_FILE="$PROJECT_DIR/.dev-pids"
 CONVEX_STATE_DIR="$HOME/.convex/anonymous-convex-backend-state"
+PROCESS_HELPER="$SCRIPT_DIR/dev-processes.py"
 
 # ============================================================
 # PARSE ARGUMENTS
@@ -98,6 +99,7 @@ fi
 echo -e "${BLUE}  Starting Development Environment...${NC}"
 
 cd "$PROJECT_DIR"
+command -v python3 >/dev/null || { echo "Python 3 is required for checkout-owned process management." >&2; exit 1; }
 
 # In CI mode, show environment info
 if [ "$NON_INTERACTIVE" = true ]; then
@@ -362,9 +364,11 @@ if [ -f "$PID_FILE" ]; then
     while IFS= read -r line; do
         name=$(echo "$line" | cut -d':' -f1)
         pid=$(echo "$line" | cut -d':' -f2)
-        if [ -n "$pid" ] && kill -0 $pid 2>/dev/null; then
+        if [ -n "$pid" ] && python3 "$PROCESS_HELPER" running "$name" "$pid"; then
             RUNNING_PIDS="$RUNNING_PIDS  $name: $pid\n"
             HAS_RUNNING_PROCESSES=true
+        elif [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            echo "Skipping unverified $name PID $pid. Stop pre-upgrade servers from their original terminal if needed."
         fi
     done < "$PID_FILE"
 
@@ -399,121 +403,13 @@ if [ -f "$PID_FILE" ]; then
     fi
 fi
 
-# ============================================================
-# CHECK FOR ORPHANED PROCESSES
-# ============================================================
-# Detect stale convex-local-backend or Next.js dev processes that aren't tracked
-# in .dev-pids (e.g. from a crashed terminal or killed script).
-
-kill_orphans() {
-    local pids="$1"
-    local label="$2"
-    for pid in $pids; do
-        if kill -0 "$pid" 2>/dev/null; then
-            local cmd=$(ps -p "$pid" -o args= 2>/dev/null | head -c 80)
-            kill "$pid" 2>/dev/null || true
-            sleep 0.3
-            if kill -0 "$pid" 2>/dev/null; then
-                kill -9 "$pid" 2>/dev/null || true
-            fi
-            echo -e "  ${GREEN}✔ Killed $label (PID $pid): $cmd${NC}"
-        fi
-    done
-}
-
-# Stop a child process without risking an unbounded wait.
+# Only processes registered by this checkout may be stopped. An unrelated
+# Convex backend is never an orphan just because it isn't in our PID file.
 terminate_pid_with_timeout() {
     local pid="$1"
-    local grace_seconds="${2:-3}"
-    local waited=0
-
-    if [ -z "$pid" ]; then
-        return
-    fi
-
-    if ! kill -0 "$pid" 2>/dev/null; then
-        wait "$pid" 2>/dev/null || true
-        return
-    fi
-
-    kill "$pid" 2>/dev/null || true
-    while kill -0 "$pid" 2>/dev/null && [ $waited -lt $grace_seconds ]; do
-        sleep 1
-        waited=$((waited + 1))
-    done
-
-    if kill -0 "$pid" 2>/dev/null; then
-        kill -9 "$pid" 2>/dev/null || true
-    fi
-
+    python3 "$PROCESS_HELPER" stop --name convex
     wait "$pid" 2>/dev/null || true
 }
-
-# Check if a PID is tracked by any worktree's .dev-pids file.
-# Returns 0 if tracked (leave it alone), 1 if orphaned.
-is_tracked_by_any_worktree() {
-    local check_pid="$1"
-    if ! command -v git &>/dev/null; then
-        return 1
-    fi
-    while IFS= read -r wt_line; do
-        local wt_dir
-        wt_dir=$(echo "$wt_line" | awk '{print $1}')
-        if [ -f "$wt_dir/.dev-pids" ]; then
-            while IFS= read -r line; do
-                local tracked_pid
-                tracked_pid=$(echo "$line" | cut -d':' -f2)
-                if [ "$tracked_pid" = "$check_pid" ]; then
-                    return 0
-                fi
-            done < "$wt_dir/.dev-pids"
-        fi
-    done < <(cd "$PROJECT_DIR" && git worktree list 2>/dev/null)
-    return 1
-}
-
-# Filter Convex orphans: only flag processes not tracked by ANY worktree
-ALL_CONVEX=$(pgrep -f "convex-local-backend" 2>/dev/null || true)
-ORPHAN_CONVEX=""
-for pid in $ALL_CONVEX; do
-    if ! is_tracked_by_any_worktree "$pid"; then
-        ORPHAN_CONVEX="$ORPHAN_CONVEX $pid"
-    fi
-done
-ORPHAN_CONVEX=$(echo "$ORPHAN_CONVEX" | xargs)
-
-ORPHAN_NEXT=$(pgrep -f "next dev" 2>/dev/null | while read pid; do
-    # Only match Next.js processes rooted in this project
-    ps -p "$pid" -o args= 2>/dev/null | grep -q "$PROJECT_DIR" && echo "$pid"
-done || true)
-
-if [ -n "$ORPHAN_CONVEX" ] || [ -n "$ORPHAN_NEXT" ]; then
-    ORPHAN_COUNT=$(echo "$ORPHAN_CONVEX $ORPHAN_NEXT" | wc -w | tr -d ' ')
-    echo -e "${YELLOW}⚠ Found $ORPHAN_COUNT orphaned dev process(es) (not tracked in .dev-pids):${NC}"
-    for pid in $ORPHAN_CONVEX; do
-        echo -e "  ${RED}convex-local-backend${NC} (PID $pid)"
-    done
-    for pid in $ORPHAN_NEXT; do
-        cmd=$(ps -p "$pid" -o args= 2>/dev/null | head -c 80)
-        echo -e "  ${RED}next dev${NC} (PID $pid): $cmd"
-    done
-    echo ""
-
-    if [ ! -t 0 ]; then
-        echo -e "${YELLOW}Non-interactive mode: killing orphaned processes...${NC}"
-        kill_orphans "$ORPHAN_CONVEX" "convex-local-backend"
-        kill_orphans "$ORPHAN_NEXT" "next dev"
-        echo ""
-    else
-        read -p "Kill them? [Y/n]: " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-            kill_orphans "$ORPHAN_CONVEX" "convex-local-backend"
-            kill_orphans "$ORPHAN_NEXT" "next dev"
-            echo ""
-        fi
-    fi
-fi
 
 # ============================================================
 # WARN IF OTHER WORKTREES HAVE RUNNING DEV PROCESSES
@@ -603,6 +499,7 @@ if [ "$NEED_CONVEX" = true ]; then
         (cd "$CONVEX_DIR" && CONVEX_AGENT_MODE=anonymous npx convex dev > "$PROJECT_DIR/.convex-dev.log" 2>&1) &
         CONVEX_PID=$!
     fi
+    python3 "$PROCESS_HELPER" track convex "$CONVEX_PID"
     echo "convex:$CONVEX_PID" > "$PID_FILE"
 
     MAX_WAIT=30
@@ -874,6 +771,7 @@ start_next_app() {
 
     (cd "$app_dir" && bunx next dev --turbopack --port "$actual_port" > "$log_file" 2>&1) &
     local next_pid=$!
+    python3 "$PROCESS_HELPER" track "next-${app_name}" "$next_pid"
     echo "next-${app_name}:$next_pid" >> "$PID_FILE"
 
     local max_wait=60

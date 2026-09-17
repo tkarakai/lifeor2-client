@@ -34,7 +34,7 @@ bun run dev:landing          # Landing page only (port 3000, no Convex)
 bun run dev:landing-static   # Static landing page (port 3004, no Convex)
 bun run dev:storybook        # Component storybook only (port 3003, no Convex)
 bun run dev:stop             # Stop all services
-bun run dev:nuke-all         # Kill ALL node/convex processes across all worktrees
+bun run dev:nuke-all         # Stop verified dev services across this repo’s worktrees
 bun run dev:status           # Show running processes
 
 # Run all CI checks locally before pushing (recommended!)

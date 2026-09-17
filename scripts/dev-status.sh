@@ -66,7 +66,7 @@ get_pid() {
 # Check if a PID is alive
 is_running() {
     local pid="$1"
-    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+    [ -n "$pid" ] && python3 "$SCRIPT_DIR/dev-processes.py" running "*" "$pid"
 }
 
 # ============================================================
