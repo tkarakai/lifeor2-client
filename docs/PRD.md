@@ -1,8 +1,11 @@
 # LifeOR2 Client — Product Requirements
 
-Status: Draft for review; implementation has not started.  
-Date: 2026-09-16  
-Repository: [tkarakai/lifeor2-client](https://github.com/tkarakai/lifeor2-client)  
+Status: Draft for review; implementation has not started.
+
+Date: 2026-09-16
+
+Repository: [tkarakai/lifeor2-client](https://github.com/tkarakai/lifeor2-client)
+
 Foundation: [tkarakai/web-app-starter](https://github.com/tkarakai/web-app-starter), commit `e52e8922c5b1865551e00ab6902b9415c128f0c3`.
 
 ## 1. Product intent
