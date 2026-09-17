@@ -20,7 +20,10 @@ export function sanitizeObservation(value: unknown): unknown {
     return Object.fromEntries(
       Object.entries(value).map(([k, v]) => [
         k,
-        sensitive.test(k) ? "[redacted]" : sanitizeObservation(v),
+        sensitive.test(k) &&
+        !(typeof v === "number" && /^(reasoning|thinking)$/i.test(k))
+          ? "[redacted]"
+          : sanitizeObservation(v),
       ]),
     );
   if (typeof value === "string") {

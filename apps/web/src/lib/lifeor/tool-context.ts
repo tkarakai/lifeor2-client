@@ -1,0 +1,206 @@
+import { randomUUID } from "node:crypto";
+
+type CatalogTool = {
+  name: string;
+  description?: string;
+  annotations?: { readOnlyHint?: boolean };
+};
+const synonyms: Record<string, string[]> = {
+  income: ["salary", "earnings", "earns", "payroll"],
+  entities: [
+    "entity",
+    "people",
+    "person",
+    "family",
+    "members",
+    "contacts",
+    "contact",
+  ],
+  arrangements: ["relationships", "relationship", "agreements"],
+  finance: ["financial", "money", "transactions"],
+};
+export function rankTools<T extends CatalogTool>(
+  tools: T[],
+  query: string,
+): T[] {
+  const words = query.toLowerCase().split(/\W+/).filter(Boolean);
+  const expanded = [
+    ...new Set(
+      words.flatMap((w) => [
+        w,
+        ...Object.entries(synonyms)
+          .filter(([key, aliases]) => key === w || aliases.includes(w))
+          .map(([key]) => key),
+      ]),
+    ),
+  ];
+  const writing =
+    /\b(create|edit|update|delete|reverse|post|write|remove)\b/i.test(query);
+  return tools
+    .map((t) => {
+      const name = t.name.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+      const score = expanded.reduce(
+        (n, w) =>
+          n +
+          (name.includes(w) ? 8 : 0) +
+          (t.description?.toLowerCase().includes(w) ? 2 : 0),
+        0,
+      );
+      return {
+        t,
+        score: score
+          ? score + (!writing && t.annotations?.readOnlyHint ? 5 : 0)
+          : 0,
+      };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || a.t.name.localeCompare(b.t.name))
+    .slice(0, 6)
+    .map((x) => x.t);
+}
+export function normalizeResult(result: {
+  structuredContent?: unknown;
+  content?: unknown;
+  isError?: boolean;
+}): unknown {
+  let value = result.structuredContent;
+  if (value === undefined) {
+    value = result.content ?? null;
+    if (
+      Array.isArray(result.content) &&
+      result.content.length === 1 &&
+      result.content[0]?.type === "text"
+    ) {
+      const text = result.content[0].text;
+      try {
+        value = JSON.parse(text);
+      } catch {
+        value = text;
+      }
+    }
+  }
+  // Pi marks successful execute() returns as non-errors, so retain MCP failure status in model-visible data.
+  return result.isError ? { isError: true, result: value } : value;
+}
+/** Run-scoped snapshots keep large results out of context without losing access to omitted rows. */
+export class ResultPages {
+  private values = new Map<string, unknown>();
+  private bytes = 0;
+  save(value: unknown): string {
+    const text = JSON.stringify(value);
+    if (Buffer.byteLength(text) <= 12000) return text;
+    const id = randomUUID();
+    const size = Buffer.byteLength(text);
+    if (size > 8_000_000 || this.bytes + size > 16_000_000)
+      return JSON.stringify({
+        tooLarge: true,
+        bytes: size,
+        hint: "Use a narrower server query. No partial result is supplied.",
+      });
+    this.values.set(id, value);
+    this.bytes += size;
+    return this.read(id);
+  }
+  read(id: string, path = "", offset = 0): string {
+    if (!this.values.has(id))
+      return JSON.stringify({
+        error:
+          "Result snapshot expired or unknown. Snapshots are available only during this run.",
+      });
+    if (!Number.isInteger(offset) || offset < 0)
+      throw new Error("offset must be a nonnegative integer");
+    if (path && !path.startsWith("/"))
+      throw new Error("path must be a JSON pointer beginning with / ");
+    let value = this.values.get(id);
+    for (const key of path
+      ? path
+          .split("/")
+          .slice(1)
+          .map((k) => k.replace(/~1/g, "/").replace(/~0/g, "~"))
+      : []) {
+      if (!value || typeof value !== "object" || !Object.hasOwn(value, key))
+        throw new Error("Unknown JSON pointer path");
+      value = (value as Record<string, unknown>)[key];
+    }
+    if (Buffer.byteLength(JSON.stringify(value)) <= 11000)
+      return JSON.stringify({
+        resultId: id,
+        path,
+        data: value,
+        complete: true,
+      });
+    if (Array.isArray(value)) {
+      const records: unknown[] = [];
+      let next = offset;
+      while (next < value.length && records.length < 20) {
+        const item = value[next];
+        if (Buffer.byteLength(JSON.stringify([...records, item])) > 10000)
+          break;
+        records.push(item);
+        next++;
+      }
+      if (next === offset && next < value.length)
+        return JSON.stringify({
+          resultId: id,
+          path,
+          total: value.length,
+          inspectPath: `${path}/${offset}`,
+          hint: "This record is large. Inspect its fields using read_result and inspectPath.",
+        });
+      return JSON.stringify({
+        resultId: id,
+        path,
+        records,
+        total: value.length,
+        nextOffset: next < value.length ? next : null,
+        complete: next >= value.length,
+        hint: "Use read_result with resultId, path and nextOffset as offset. This is a partial snapshot, not the full dataset.",
+      });
+    }
+    if (value && typeof value === "object") {
+      const entries = Object.entries(value);
+      const fields: {
+        key: string;
+        path: string;
+        type: string;
+        length?: number;
+      }[] = [];
+      let next = offset;
+      while (next < entries.length && fields.length < 20) {
+        const [key, val] = entries[next];
+        const field = {
+          key,
+          path: path + "/" + key.replace(/~/g, "~0").replace(/\//g, "~1"),
+          type: Array.isArray(val) ? "array" : typeof val,
+          ...(Array.isArray(val) ? { length: val.length } : {}),
+        };
+        if (Buffer.byteLength(JSON.stringify([...fields, field])) > 10000)
+          break;
+        fields.push(field);
+        next++;
+      }
+      return JSON.stringify({
+        resultId: id,
+        path,
+        fields,
+        totalFields: entries.length,
+        nextOffset: next < entries.length ? next : null,
+        complete: next >= entries.length,
+        ...(next === offset && next < entries.length
+          ? {
+              tooLarge: true,
+              hint: "A field name is too large to inspect. Request a narrower server result.",
+            }
+          : {
+              hint: "Inspect field paths with read_result. Follow nextOffset as offset to list remaining fields.",
+            }),
+      });
+    }
+    return JSON.stringify({
+      resultId: id,
+      path,
+      tooLarge: true,
+      hint: "This scalar is too large. Request a narrower server result; no incomplete value is supplied.",
+    });
+  }
+}

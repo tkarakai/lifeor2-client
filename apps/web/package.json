@@ -18,7 +18,8 @@
     "size": "size-limit",
     "size:check": "size-limit --json",
     "smoke:model": "bun scripts/smoke-model.ts",
-    "smoke:context": "bun scripts/smoke-context.ts"
+    "smoke:context": "bun scripts/smoke-context.ts",
+    "eval:agent": "bun scripts/eval-agent.ts"
   },
   "dependencies": {
     "@convex-dev/better-auth": "0.12.5",

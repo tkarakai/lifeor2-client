@@ -70,7 +70,7 @@ export function modelConfig() {
   ).href.replace(/\/$/, "");
   const model = process.env.LLM_MODEL;
   if (!model) throw new AppError("MODEL_UNAVAILABLE", 503);
-  const context = integer("LLM_CONTEXT_WINDOW", 16384, 2048, 1048576);
+  const context = integer("LLM_CONTEXT_WINDOW", 32768, 2048, 1048576);
   const output = integer("LLM_MAX_OUTPUT_TOKENS", 2048, 128, 32768);
   if (output >= context)
     throw new Error("Output limit must be below context window");

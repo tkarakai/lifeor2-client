@@ -51,3 +51,6 @@ logs/security/
 
 # Python development-process regression tests
 __pycache__/
+
+# Synthetic model evaluation artifacts (separate from Playwright cleanup)
+.eval-results/

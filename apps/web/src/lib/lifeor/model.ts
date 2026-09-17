@@ -16,6 +16,8 @@ import { AppError, modelConfig } from "./config";
 import { WorkingContext, SUMMARY_PROMPT, contextUsage } from "./context";
 import type { ContextUsage, Observe } from "./types";
 
+const observedTokenRatios = new Map<string, number>();
+
 export type ModelHooks = {
   observe?: Observe;
   usage?: (usage: ContextUsage) => void;
@@ -48,7 +50,7 @@ export function makeAgent(
       supportsDeveloperRole: false,
       supportsStore: false,
       maxTokensField: "max_tokens",
-      supportsUsageInStreaming: false,
+      supportsUsageInStreaming: process.env.LLM_STREAM_USAGE !== "false",
     },
   };
   const observe = hooks.observe ?? (async () => {});
@@ -67,13 +69,25 @@ export function makeAgent(
         maxRetries: 0,
         timeoutMs: c.timeout,
         onPayload: async (payload) => {
+          const effectivePayload =
+            typeof payload === "object" &&
+            payload !== null &&
+            ["true", "false"].includes(process.env.LLM_THINKING ?? "")
+              ? {
+                  ...payload,
+                  chat_template_kwargs: {
+                    enable_thinking: process.env.LLM_THINKING === "true",
+                  },
+                }
+              : payload;
           await observe({
             exchange,
             channel,
             direction: "request",
             label: `${c.model} · ${channel === "compaction" ? "summarize" : "generate"}`,
-            body: payload,
+            body: effectivePayload,
           });
+          return effectivePayload;
         },
         onResponse: async (response) => {
           await observe({
@@ -116,6 +130,18 @@ export function makeAgent(
     hooks.compact ?? (async () => {}),
   );
   let rounds = 0;
+  let lastReportedUsage: ContextUsage | undefined;
+  const calibrationKey = `${c.baseUrl}/${c.model}`;
+  let tokenRatio = observedTokenRatios.get(calibrationKey) ?? 1;
+  function estimatedUsage(context: Context): ContextUsage {
+    const usage = contextUsage(context, c);
+    const tokens = Math.ceil(usage.tokens * tokenRatio);
+    return {
+      ...usage,
+      tokens,
+      percent: Math.round((tokens / c.context) * 100),
+    };
+  }
   const agent = new Agent({
     initialState: { systemPrompt, model, tools, messages },
     toolExecution: "sequential",
@@ -125,14 +151,15 @@ export function makeAgent(
         try {
           if (++rounds > c.rounds) throw new AppError("TOOL_LIMIT");
           hooks.usage?.(
-            contextUsage(
-              { ...original, messages: memory.project(original.messages) },
-              c,
-            ),
+            estimatedUsage({
+              ...original,
+              messages: memory.project(original.messages),
+            }),
           );
+          memory.setTokenRatio(tokenRatio);
           let context = await memory.prepare(original, options?.signal);
           for (let attempt = 0; attempt < 2; attempt++) {
-            hooks.usage?.(contextUsage(context, c));
+            hooks.usage?.(estimatedUsage(context));
             const { stream, exchange } = generate(
               context,
               { ...options, maxTokens: c.output },
@@ -187,12 +214,23 @@ export function makeAgent(
                   },
                   c,
                 );
+                const inputTokens =
+                  event.message.usage.input +
+                  event.message.usage.cacheRead +
+                  event.message.usage.cacheWrite;
+                if (inputTokens > 0) {
+                  tokenRatio = Math.max(
+                    tokenRatio,
+                    (inputTokens / contextUsage(context, c).tokens) * 1.1,
+                  );
+                  observedTokenRatios.set(calibrationKey, tokenRatio);
+                }
                 const reported =
                   event.message.usage.input +
                   event.message.usage.cacheRead +
                   event.message.usage.cacheWrite +
                   event.message.usage.output;
-                hooks.usage?.(
+                lastReportedUsage =
                   reported > 0
                     ? {
                         ...usage,
@@ -200,7 +238,13 @@ export function makeAgent(
                         percent: Math.round((reported / c.context) * 100),
                         estimated: false,
                       }
-                    : usage,
+                    : undefined;
+                hooks.usage?.(
+                  lastReportedUsage ??
+                    estimatedUsage({
+                      ...context,
+                      messages: [...context.messages, event.message],
+                    }),
                 );
               }
               output.push(event);
@@ -257,17 +301,22 @@ export function makeAgent(
         tools,
         messages: agent.state.messages as Message[],
       };
-      const before = contextUsage(
-        { ...original, messages: memory.project(original.messages) },
-        c,
-      );
+      memory.setTokenRatio(tokenRatio);
+      const before = estimatedUsage({
+        ...original,
+        messages: memory.project(original.messages),
+      });
       if (manual && before.percent < 30) {
         hooks.usage?.(before);
         return false;
       }
       const context = await memory.prepare(original, signal, manual);
-      const after = contextUsage(context, c);
-      hooks.usage?.(after);
+      const after = estimatedUsage(context);
+      hooks.usage?.(
+        after.tokens === before.tokens && lastReportedUsage
+          ? lastReportedUsage
+          : after,
+      );
       return after.tokens < before.tokens;
     },
   });

@@ -16,11 +16,34 @@ const { adapter } = await import("../../src/lib/lifeor/adapter");
 
 test("real MCP v2 adapter persists stable write keys and waits for an explicit confirmation", async () => {
   const received: Record<string, unknown>[] = [];
+  let readCalls = 0;
   let commits = 0,
     decision = "cancel";
   const handler = createMcpHandler(
     () => {
       const server = new McpServer({ name: "fixture", version: "1" });
+      server.registerTool(
+        "records.read",
+        {
+          description: "Read current records",
+          annotations: { readOnlyHint: true },
+          inputSchema: fromJsonSchema({
+            type: "object",
+            properties: { datasetId: { type: "string" } },
+            required: ["datasetId"],
+            additionalProperties: false,
+          }),
+        },
+        async () => {
+          readCalls++;
+          const result = { revision: received.length };
+          return {
+            resultType: "complete",
+            content: [{ type: "text", text: JSON.stringify(result) }],
+            structuredContent: result,
+          };
+        },
+      );
       server.registerTool(
         "records.edit",
         {
@@ -152,8 +175,16 @@ test("real MCP v2 adapter persists stable write keys and waits for an explicit c
       ),
       call = tools.find((t) => t.name === "call_tool")!;
     const args = { name: "records.edit", arguments: { expectedRevision: 3 } };
+    const read = { name: "records.read", arguments: {} };
+    await call.execute("read-before-1", read);
+    await call.execute("read-before-2", read);
+    await call.execute("read-loop", read);
+    expect(readCalls).toBe(2);
     await call.execute("first", args);
     await call.execute("second", args);
+    const verification = await call.execute("verify-after-write", read);
+    expect(readCalls).toBe(3);
+    expect(JSON.stringify(verification.content)).toContain("revision");
     expect(received[0].datasetId).toBe("dataset-a");
     expect(received[0].requestKey).toBe(received[1].requestKey);
     expect(received[0].expectedRevision).toBe(3);

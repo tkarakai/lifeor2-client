@@ -359,3 +359,80 @@ test("a fitting request with no older history is not rejected just for crossing 
   expect(await memory.prepare(original)).toEqual(original);
   expect(summaries).toBe(0);
 });
+
+test("every compaction fragment receives the active question including exact constraints", async () => {
+  configure();
+  const inputs: string[] = [];
+  const memory = new WorkingContext(
+    modelConfig(),
+    async (text) => {
+      inputs.push(text);
+      return "Alex ID person-19; June–August gross income; USD. No edits.";
+    },
+    async () => {},
+  );
+  await memory.prepare({
+    messages: [
+      user("old records ".repeat(1800)),
+      user(
+        "Show Alex person-19 gross income June–August, separately by currency.",
+      ),
+    ],
+  });
+  expect(inputs.length).toBeGreaterThan(1);
+  expect(
+    inputs.every((s) => s.includes("person-19 gross income June–August")),
+  ).toBe(true);
+});
+
+test("legacy truncated tool dumps become explicit re-query notices, never apparent complete data", () => {
+  const message: Message = {
+    role: "toolResult",
+    toolCallId: "old",
+    toolName: "call_tool",
+    isError: false,
+    timestamp: 1,
+    content: [
+      {
+        type: "text",
+        text:
+          "unusable bulk ".repeat(3000) +
+          "\n[Result truncated. Narrow the query; do not infer missing records.]",
+      },
+    ],
+  };
+  const cleaned = cleanMessages([message]);
+  expect(JSON.stringify(cleaned)).not.toContain("unusable bulk");
+  expect(JSON.stringify(cleaned)).toContain("not complete evidence");
+  expect(JSON.stringify(message)).toContain("unusable bulk");
+});
+
+test("observation preserves numeric reasoning-token counts but redacts reasoning text", () => {
+  expect(
+    sanitizeObservation({ usage: { reasoning: 123 }, reasoning: "private" }),
+  ).toEqual({ usage: { reasoning: 123 }, reasoning: "[redacted]" });
+});
+
+test("provider calibration also reserves room in each summary request", async () => {
+  configure();
+  const inputs: string[] = [];
+  const memory = new WorkingContext(
+    modelConfig(),
+    async (text) => {
+      inputs.push(text);
+      return "Alex person-19; requested June–August income. No changes made.";
+    },
+    async () => {},
+  );
+  memory.setTokenRatio(2);
+  await memory.prepare({
+    messages: [user("old data ".repeat(2500)), user("Show Alex's income.")],
+  });
+  expect(inputs.length).toBeGreaterThan(1);
+  // Simulate a tokenizer requiring twice the baseline estimate, plus summary output and instructions.
+  expect(
+    inputs.every(
+      (text) => Buffer.byteLength(text) / 1.5 + 1500 < modelConfig().context,
+    ),
+  ).toBe(true);
+});

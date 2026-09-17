@@ -6,6 +6,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Store, Run } from "./types";
 import { AppError } from "./config";
 import { canonical, hash } from "./crypto";
+import { normalizeResult, rankTools, ResultPages } from "./tool-context";
 
 export function boundArguments(
   schema: Record<string, unknown>,
@@ -119,6 +120,9 @@ export async function adapter(
     await store("run.resume", { id: runId });
     return { action: "cancel" };
   });
+  const pages = new ResultPages();
+  const discoveries = new Map<string, number>();
+  const reads = new Map<string, number>();
   return [
     {
       name: "find_tools",
@@ -128,42 +132,37 @@ export async function adapter(
       parameters: Type.Object({ query: Type.String({ maxLength: 200 }) }),
       execute: async (_id, args) => {
         signal.throwIfAborted();
-        const words = String((args as { query: string }).query)
-          .toLowerCase()
-          .split(/\W+/)
-          .filter(Boolean);
-        const scored = tools
-          .map((t) => ({
-            t,
-            score: words.reduce(
-              (n, w) =>
-                n +
-                (t.name.toLowerCase().includes(w) ? 5 : 0) +
-                (t.description?.toLowerCase().includes(w) ? 1 : 0),
-              0,
-            ),
-          }))
-          .filter((x) => x.score > 0)
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 6)
-          .map(({ t }) => {
-            const schema = structuredClone(t.inputSchema);
-            delete schema.properties?.datasetId;
-            delete schema.properties?.requestKey;
-            schema.required = schema.required?.filter(
-              (k) => k !== "datasetId" && k !== "requestKey",
-            );
-            return {
-              name: t.name,
-              description: t.description,
-              inputSchema: schema,
-              annotations: t.annotations,
-            };
-          });
+        const query = String((args as { query: string }).query);
+        const count = (discoveries.get(query.toLowerCase()) ?? 0) + 1;
+        discoveries.set(query.toLowerCase(), count);
+        const scored = rankTools(tools, query).map((t) => {
+          const schema = structuredClone(t.inputSchema);
+          delete schema.properties?.datasetId;
+          delete schema.properties?.requestKey;
+          schema.required = schema.required?.filter(
+            (k) => k !== "datasetId" && k !== "requestKey",
+          );
+          return {
+            name: t.name,
+            description: t.description,
+            inputSchema: schema,
+            annotations: t.annotations,
+          };
+        });
         const text = JSON.stringify({
           tools: scored,
           totalAuthorized: tools.length,
-          hint: "Refine the query for other tools. Read current revisions before editing.",
+          hint:
+            count > 1
+              ? "Repeated discovery: choose a returned tool, try a different term, or explain the missing capability. Do not repeat this search."
+              : "Read tools are preferred for questions. Resolve identities before reporting totals. Follow pagination; read revisions before editing.",
+          ...(scored.length
+            ? {}
+            : {
+                availableTopics: [
+                  ...new Set(tools.map((t) => t.name.split(".")[0])),
+                ],
+              }),
         });
         return { content: [{ type: "text", text }], details: {} };
       },
@@ -208,8 +207,22 @@ export async function adapter(
             ],
             details: {},
           };
-        current = { name: tool.name, args };
         const reading = tool.annotations?.readOnlyHint === true;
+        const readCount = (reads.get(key) ?? 0) + 1;
+        if (reading) reads.set(key, readCount);
+        if (reading && readCount > 2)
+          return {
+            content: [
+              {
+                type: "text",
+                text: "No progress: this exact read was already executed twice. Use its saved result, pagination or a different query. If evidence is insufficient, explain what is missing instead of repeating the read.",
+              },
+            ],
+            details: {},
+          };
+        // A mutation can change the evidence; allow fresh verification reads afterward.
+        if (!reading) reads.clear();
+        current = { name: tool.name, args };
         stage(reading ? "Reading records" : "Updating records");
         // Persist the exact write identity BEFORE dispatch, including ambiguous failures.
         await event(
@@ -222,19 +235,16 @@ export async function adapter(
             { name: tool.name, arguments: args },
             { signal, timeout: 180000, maxTotalTimeout: 180000 },
           );
-          const json = JSON.stringify(result);
+
           await event(
             result.isError ? "tool_error" : "result",
             `${tool.title ?? tool.name}: ${result.isError ? "not completed" : "completed"}`,
             result,
           );
-          const text =
-            json.length > 32000
-              ? json.slice(0, 32000) +
-                "\n[Result truncated. Narrow the query; do not infer missing records.]"
-              : json;
+          const text = pages.save(normalizeResult(result));
           return {
             content: [{ type: "text", text }],
+            isError: !!result.isError,
             details: { isError: !!result.isError },
           };
         } catch (error) {
@@ -247,6 +257,40 @@ export async function adapter(
           throw error;
         } finally {
           current = undefined;
+        }
+      },
+    },
+    {
+      name: "read_result",
+      label: "Read saved result",
+      description:
+        "Read a page or JSON-pointer field from a large tool result saved during this run. Does not repeat the server operation. Follow nextOffset; do not assume a partial page is complete.",
+      parameters: Type.Object({
+        resultId: Type.String(),
+        path: Type.Optional(Type.String()),
+        offset: Type.Optional(Type.Integer({ minimum: 0 })),
+      }),
+      execute: async (_id, args) => {
+        signal.throwIfAborted();
+        const a = args as { resultId: string; path?: string; offset?: number };
+        try {
+          return {
+            content: [
+              { type: "text", text: pages.read(a.resultId, a.path, a.offset) },
+            ],
+            details: {},
+          };
+        } catch (error) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Invalid saved-result selection: ${error instanceof Error ? error.message : "unknown path"}. Use the resultId and JSON-pointer paths returned by the tool.`,
+              },
+            ],
+            isError: true,
+            details: {},
+          };
         }
       },
     },
