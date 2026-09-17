@@ -50,6 +50,20 @@ Generate a 32-byte base64 encryption key and an independent random gateway secre
 
 `LLM_CONTEXT_WINDOW` defaults to 16384; output to 2048 tokens; deployment concurrency to 2; turn duration to 300000 ms; model rounds to 12. Adjust these to the actual model/server capacity. A missing provider key uses the placeholder `local`, solely for compatible servers that require a nonempty SDK key; it does not bypass provider authentication. The supplied endpoint returned **401 Invalid API key** in the initial smoke attempt. Configure its real key before expecting chat generation to work.
 
+### Context management and traffic inspection
+
+`LLM_AUTO_COMPACT=true`, `LLM_COMPACT_AT_PERCENT=80`, and `LLM_COMPACT_TO_PERCENT=55` control compaction. The target must be below the trigger. These are server-owned settings, like `LLM_CONTEXT_WINDOW` and `LLM_MAX_OUTPUT_TOKENS`; changing the declared context window does not change inference-server capacity. Restart the web process after configuration changes.
+
+Before every model generation (including tool follow-ups), the runtime checks the entire request, including instructions and schemas. It compacts at the configured threshold or earlier to reserve maximum output plus a 5% safety margin (minimum 256 tokens). It also checks after the final generation. A bounded working-checkpoint budget can trigger compaction earlier for very large context configurations. Counts use a conservative UTF-8 byte estimate, not the model's tokenizer; the UI labels estimates with `~`. Provider-reported usage is used when available during generation. The meter excludes unsent drafts.
+
+Compaction uses the configured model and endpoint, with no tools, to summarize older content in bounded chunks. It preserves the current user request verbatim, trusted system instructions, and intact retained tool-call/result pairs. Summaries preserve goals, constraints, IDs, completed actions, uncertain outcomes, and remaining work; they are untrusted historical data, never confirmation or authorization. The working checkpoint is saved atomically with run completion, including failure outcomes, and reused on subsequent turns. Old assistant event text is not duplicated into model history. Summaries are lossy; original conversation and operation history remains available. After a crash, uncheckpointed runs are reconstructed from saved outcomes without replaying operations.
+
+An explicit provider context-overflow rejection before any generated content triggers at most one compaction/retry of inference within the same run. Tool operations and their write keys are not restarted. A single oversized current request, unsuccessful summary, or second overflow fails with an actionable message. Output truncation is reported separately; incomplete tool calls are never executed and text continuation is not automatic. Compaction shares the run's cancellation signal, timeout, concurrency limit, and authenticated owner. “Compact now” performs a summary-only turn; it makes no business-data writes and skips work when context is already small.
+
+The composer shows context use and a compacting status. Each turn includes compaction notices and an on-demand traffic inspector, filterable by model, compaction, and MCP. It stores model request bodies, assembled model responses (not raw token frames), and MCP request/response bodies with exchange IDs. Transport headers, OAuth exchanges, credentials, and private reasoning are excluded/redacted. Payloads can contain the user's conversation and business records and remain owner-scoped. Inspection is bounded to the first 128 entries per run, with 48000-byte previews explicitly marked; older runs have no captured traffic. Traffic is stored separately from model history and fetched only when the inspector is open.
+
+Schema additions are optional context fields, an optional compaction run kind, a request lookup index, and the `lifeorMemory` / `lifeorTraffic` tables. Deploy client Convex schema/functions with the web change; existing conversations require no migration. Deleting a conversation immediately revokes access and removes its working memory; saved runs and traffic are purged in bounded background batches. These tables are included in client database backups.
+
 Endpoints are operator-owned and accept HTTPS or loopback HTTP. For a protected private-network HTTP service, terminate HTTPS at a trusted proxy or use an SSH tunnel bound to loopback. Redirects are rejected; browser input never chooses a provider or MCP destination.
 
 ## Authentication and persistence
@@ -74,7 +88,7 @@ Tokens and PKCE material use AES-256-GCM with the owner identity as authenticate
 
 - One active turn per client user (therefore also one per conversation), ten starts per minute, plus the configured global cap. Client control mutations also use the starter's durable mutation quota.
 - Send IDs are persisted and checked atomically with the run. The same ID and prompt return the existing run; a changed prompt with that ID fails. Reloading or reopening a stream never sends a prompt.
-- History is capped at 200 conversations and 20 turns per conversation. Start a new conversation at the turn/context limit; delete old conversations to make room. There is no silent truncation of model context. Tool results larger than 32000 characters are explicitly marked truncated and require a narrower query.
+- History is capped at 200 conversations, with no turn-count limit. The UI loads 30 turns at a time. Model context is compacted automatically; original user messages, answers, and operation records remain in history. Tool results larger than 32000 characters are explicitly marked truncated and require a narrower query.
 - Active work lives in one long-running app process. A new process marks prior unfinished work interrupted when history is next read. Orphaned same-process runs are marked interrupted after a short grace period. Completed assistant messages, operations, results and decisions are saved at meaningful boundaries; token text streams without token-level database writes.
 - `find_tools` searches the grant-specific catalog and returns up to six exact schemas, descriptions and annotations. `call_tool` validates arguments with AJV and supplies the trusted dataset and stable write key. No shell, filesystem, host skills, cloud fallback, arbitrary MCP server, or background task tools exist.
 - Only dataset-scoped tools are exposed. Changing the global LifeOR2 UI dataset and creating/preparing a new dataset outside the selected context are deliberately excluded; use LifeOR2 for those operations, then refresh datasets and start a conversation. The optional dataset-management scope permits authorized operations within the selected dataset (such as sample month population).
@@ -113,6 +127,8 @@ bun run --cwd apps/web build
 # Reads apps/web/.env.local; uses real configured inference and an isolated
 # read-only MCP v2 fixture, never production business data:
 bun run --cwd apps/web smoke:model
+# Real inference compaction and continuation using synthetic history only:
+bun run --cwd apps/web smoke:context
 ```
 
 The smoke command requires an actual streamed response, a Pi tool call over MCP v2, and a grounded follow-up containing a randomly generated record reference and values. It fails if any step is absent. It is a provider/SDK test, not proof of live LifeOR2 writes. Use a disposable authorized LifeOR2 dataset for the release checks in [implementation-status.md](implementation-status.md).

@@ -58,11 +58,32 @@ async function route(request: Request, context: Context): Promise<Response> {
           live: Object.fromEntries(
             [...registry.runs]
               .filter(([, r]) => r.ownerId === identity.ownerId)
-              .map(([id, r]) => [id, { answer: r.answer, stage: r.stage }]),
+              .map(([id, r]) => [
+                id,
+                { answer: r.answer, stage: r.stage, context: r.context },
+              ]),
           ),
         },
         { headers: { "Cache-Control": "no-store" } },
       );
+    }
+    if (path === "history" && request.method === "GET") {
+      const id = url.searchParams.get("conversation");
+      if (!id) throw new AppError("INVALID_INPUT");
+      return Response.json(
+        await store("conversation.history", {
+          id,
+          cursor: url.searchParams.get("cursor"),
+        }),
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (path === "traffic" && request.method === "GET") {
+      const id = url.searchParams.get("run");
+      if (!id) throw new AppError("INVALID_INPUT");
+      return Response.json(await store("run.traffic", { id }), {
+        headers: { "Cache-Control": "no-store" },
+      });
     }
     if (path === "stream" && request.method === "GET") {
       const id = url.searchParams.get("run");
@@ -81,7 +102,7 @@ async function route(request: Request, context: Context): Promise<Response> {
               if (closed) return;
               controller.enqueue(
                 encoder.encode(
-                  `data: ${JSON.stringify({ run, answer: live?.answer ?? run.answer, stage: live?.stage ?? run.status })}\n\n`,
+                  `data: ${JSON.stringify({ run, answer: live?.answer ?? run.answer, stage: live?.stage ?? run.status, context: live?.context ?? run.context })}\n\n`,
                 ),
               );
               if (!["running", "waiting"].includes(run.status) || !live) {
@@ -147,6 +168,8 @@ async function route(request: Request, context: Context): Promise<Response> {
       );
       return Response.json({ ok: true });
     }
+    if (path === "runs/compact")
+      return Response.json(await startRun(store, identity, input, true));
     if (path === "runs/start")
       return Response.json(await startRun(store, identity, input));
     if (path === "runs/stop") {

@@ -30,7 +30,10 @@ test("authenticated workspace supports desktop, mobile, theme and connection sta
       hydrationErrors.push(error.message);
   });
   page.on("console", (message) => {
-    if (message.type() === "error" && /hydration|server rendered HTML/i.test(message.text()))
+    if (
+      message.type() === "error" &&
+      /hydration|server rendered HTML/i.test(message.text())
+    )
       hydrationErrors.push(message.text());
   });
   await page.emulateMedia({ colorScheme: "light" });
@@ -157,7 +160,20 @@ test("chat renders safe content, confirms exact operations and preserves failed 
     status: "waiting",
     prompt: "Delete the archived example",
     answer: "",
-    events: [],
+    events: [
+      {
+        id: "compact",
+        type: "compaction",
+        text: "Context compacted from 82% to 55%. Original history is saved.",
+      },
+    ],
+    context: {
+      tokens: 9011,
+      window: 16384,
+      percent: 55,
+      outputReserve: 2048,
+      estimated: true,
+    },
     createdAt: Date.now(),
     confirmation: {
       id: "confirmation-exact",
@@ -205,6 +221,48 @@ test("chat renders safe content, confirms exact operations and preserves failed 
       body: `data: ${JSON.stringify({ run, answer: "", stage: "Waiting for your confirmation" })}\n\n`,
     }),
   );
+  await page.route("**/api/lifeor/traffic*", (route) =>
+    route.fulfill({
+      json: {
+        entries: [
+          {
+            id: "sent",
+            exchange: "exchange-1",
+            channel: "model",
+            direction: "request",
+            label: "fixture · generate",
+            body: JSON.stringify({
+              model: "fixture",
+              messages: [{ role: "user", content: "Review records" }],
+            }),
+            at: Date.now(),
+            truncated: false,
+          },
+          {
+            id: "received",
+            exchange: "exchange-1",
+            channel: "model",
+            direction: "response",
+            label: "Generation · assembled response",
+            body: JSON.stringify({ content: "Record reviewed" }),
+            at: Date.now(),
+            truncated: false,
+          },
+          {
+            id: "summary",
+            exchange: "exchange-2",
+            channel: "compaction",
+            direction: "response",
+            label: "Summary · assembled response",
+            body: JSON.stringify({ content: "Older records summarized" }),
+            at: Date.now(),
+            truncated: true,
+          },
+        ],
+        limited: false,
+      },
+    }),
+  );
   let approved = false;
   await page.route("**/api/lifeor/runs/confirm", async (route) => {
     const payload = route.request().postDataJSON();
@@ -247,10 +305,64 @@ test("chat renders safe content, confirms exact operations and preserves failed 
   await page.getByRole("button", { name: "Confirm operation" }).click();
   await expect(page.getByText("Removed Example.")).toBeVisible();
   expect(approved).toBe(true);
+  await expect(page.getByText("Context ~55%", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("meter", { name: "Context used" }),
+  ).toHaveAttribute("aria-valuenow", "55");
+  await expect(page.locator(".compaction-notice")).toContainText(
+    "Original history is saved",
+  );
+  await page.locator(".traffic-inspector > summary").click();
+  await page.getByText("fixture · generate", { exact: true }).click();
+  await expect(page.getByLabel("request payload")).toContainText(
+    "Review records",
+  );
+  await page.getByLabel("Filter traffic").selectOption("compaction");
+  await expect(
+    page.getByText("fixture · generate", { exact: true }),
+  ).toHaveCount(0);
+  await page.getByText("Summary · assembled response", { exact: true }).click();
+  await expect(
+    page.getByText("Preview truncated at 48,000 bytes."),
+  ).toBeVisible();
+  await page.getByLabel("response payload").scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: "qa/test-results/lifeor-context-inspector-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.screenshot({
+    path: "qa/test-results/lifeor-context-inspector-mobile.png",
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  const inspectorA11y = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+    .analyze();
+  expect(
+    inspectorA11y.violations.filter((v) =>
+      ["critical", "serious"].includes(v.impact ?? ""),
+    ),
+  ).toEqual([]);
   expect(await page.evaluate(() => Object.hasOwn(window, "compromised"))).toBe(
     false,
   );
   await expect(page.locator(".message-markdown img")).toHaveCount(0);
+  let compactRequested = false;
+  await page.route("**/api/lifeor/runs/compact", (route) => {
+    const payload = route.request().postDataJSON();
+    expect(payload.conversationId).toBe(conversation._id);
+    expect(payload.requestId).toBeTruthy();
+    expect(payload.prompt).toBeUndefined();
+    compactRequested = true;
+    return route.fulfill({ json: { id: "compact-run" } });
+  });
+  await page.getByRole("button", { name: "Compact now" }).click();
+  await expect.poll(() => compactRequested).toBe(true);
   await page
     .getByRole("textbox", { name: "Message LifeOR2" })
     .fill("A draft worth keeping");
@@ -267,9 +379,13 @@ test("chat renders safe content, confirms exact operations and preserves failed 
   await expect(
     page.getByRole("textbox", { name: "Message LifeOR2" }),
   ).toHaveValue("A draft worth keeping");
-  await page.getByRole("combobox").selectOption("dataset-b");
+  await page
+    .getByLabel("Dataset — changing starts a new conversation")
+    .selectOption("dataset-b");
   await expect(
     page.getByRole("heading", { name: "Your life, in context." }),
   ).toBeVisible();
-  await expect(page.getByRole("combobox")).toHaveValue("dataset-b");
+  await expect(
+    page.getByLabel("Dataset — changing starts a new conversation"),
+  ).toHaveValue("dataset-b");
 });

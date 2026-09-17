@@ -1,3 +1,4 @@
+import type { ContextUsage } from "./types";
 import { randomUUID } from "node:crypto";
 export type LiveRun = {
   ownerId: string;
@@ -6,6 +7,7 @@ export type LiveRun = {
   controller: AbortController;
   answer: string;
   stage: string;
+  context?: ContextUsage;
 };
 const host = globalThis as typeof globalThis & {
   lifeorRuntime?: {

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { TrafficInspector } from "./traffic-inspector";
 import { Copy, Check } from "lucide-react";
 import type { Run } from "@/lib/lifeor/types";
 function Answer({ text }: { text: string }) {
@@ -30,6 +31,15 @@ function Answer({ text }: { text: string }) {
       </button>
     </>
   );
+}
+function compactionText(run: Run): string | undefined {
+  const event = run.events.findLast((e) => e.type === "compaction");
+  if (
+    event?.text.startsWith("Compacting") &&
+    !["running", "waiting"].includes(run.status)
+  )
+    return "Compaction did not finish. Original history is saved.";
+  return event?.text;
 }
 export function Messages({
   runs,
@@ -84,6 +94,13 @@ export function Messages({
                 </ol>
               </details>
             )}
+            {run.events.some((e) => e.type === "compaction") && (
+              <p className="compaction-notice">{compactionText(run)}</p>
+            )}
+            <TrafficInspector
+              runId={run._id}
+              active={["running", "waiting"].includes(run.status)}
+            />
             {run.error && (
               <p className="run-error" role="status">
                 {run.error}

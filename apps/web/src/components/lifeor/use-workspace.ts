@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Run, Workspace } from "@/lib/lifeor/types";
+import type { Run, Workspace, ContextUsage } from "@/lib/lifeor/types";
 export async function request<T>(
   path: string,
   input?: Record<string, unknown>,
@@ -25,9 +25,13 @@ export function useWorkspace() {
     [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
-  const [live, setLive] = useState<{ answer: string; stage: string } | null>(
-    null,
-  );
+  const [live, setLive] = useState<{
+    answer: string;
+    stage: string;
+    context?: ContextUsage;
+  } | null>(null);
+  const loadedEarlier = useRef(false);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
   const selection = useRef(selected);
   selection.current = selected;
   const load = useCallback(async () => {
@@ -36,7 +40,20 @@ export function useWorkspace() {
       const result = await request<Workspace>(
         `state${id ? `?conversation=${encodeURIComponent(id)}` : ""}`,
       );
-      if (selection.current === id) setState(result);
+      if (selection.current === id)
+        setState((previous) => {
+          const merged = new Map((previous?.runs ?? []).map((r) => [r._id, r]));
+          for (const run of result.runs) merged.set(run._id, run);
+          return {
+            ...result,
+            runs: [...merged.values()].sort(
+              (a, b) => a.createdAt - b.createdAt,
+            ),
+            historyCursor: loadedEarlier.current
+              ? previous?.historyCursor
+              : result.historyCursor,
+          };
+        });
     } catch (e) {
       setError((e as Error).message);
     }
@@ -59,8 +76,14 @@ export function useWorkspace() {
         run: Run;
         answer: string;
         stage: string;
+        context?: ContextUsage;
       };
-      setLive({ answer: data.answer, stage: data.stage });
+      if (data.run.conversationId !== selection.current) return;
+      setLive({
+        answer: data.answer,
+        stage: data.stage,
+        context: data.context,
+      });
       setState((prev) =>
         prev
           ? {
@@ -104,7 +127,39 @@ export function useWorkspace() {
       setBusy(false);
     }
   }
+  async function loadEarlier() {
+    const id = selection.current;
+    if (!id || !state?.historyCursor || loadingEarlier) return;
+    setLoadingEarlier(true);
+    try {
+      const result = await request<{ runs: Run[]; cursor: string | null }>(
+        `history?conversation=${encodeURIComponent(id)}&cursor=${encodeURIComponent(state.historyCursor)}`,
+      );
+      if (selection.current === id) {
+        loadedEarlier.current = true;
+        setState((prev) => {
+          if (!prev) return prev;
+          const merged = new Map(
+            [...result.runs, ...prev.runs].map((r) => [r._id, r]),
+          );
+          return {
+            ...prev,
+            runs: [...merged.values()].sort(
+              (a, b) => a.createdAt - b.createdAt,
+            ),
+            historyCursor: result.cursor,
+          };
+        });
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoadingEarlier(false);
+    }
+  }
   function select(id: string | null) {
+    selection.current = id;
+    loadedEarlier.current = false;
     setSelected(id);
     setLive(null);
     setError("");
@@ -121,5 +176,7 @@ export function useWorkspace() {
     active,
     load,
     action,
+    loadEarlier,
+    loadingEarlier,
   };
 }

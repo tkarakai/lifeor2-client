@@ -46,4 +46,4 @@ It does not deploy the application. See `CONTRIBUTING.md` for merge requirements
 5. Run browser checks against the real connected system, including multiple devices, expired client sessions, Safari and Firefox.
 6. Validate the production HTTPS/tunnel setup and a backup restore. Configure the documented backup expiry in the actual provider. Enable inherited deployment workflows only when their infrastructure is configured.
 
-Current scope boundaries: one app instance; up to 200 conversations and 20 turns per conversation; dataset-scoped operations only; new grants require new conversations. The new workspace copy is English; existing localized authentication/account screens are retained. Voice, multi-instance coordination and unscoped dataset creation are not shipped here.
+Current scope boundaries: one app instance; up to 200 conversations, with no turn-count cap and automatic context compaction; dataset-scoped operations only; new grants require new conversations. The new workspace copy is English; existing localized authentication/account screens are retained. Voice, multi-instance coordination and unscoped dataset creation are not shipped here.
