@@ -7,7 +7,7 @@ import { ThemeProvider } from "next-themes";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages, getTranslations } from "next-intl/server";
 
-import { Toaster, EnvironmentBannerWrapper, OfflineBanner } from "@repo/design-system";
+import { Toaster, OfflineBanner } from "@repo/design-system";
 import { ConvexClientProvider } from "@repo/auth/provider";
 import { getToken } from "@repo/auth/server";
 import { getLocaleDirection, type Locale, locales, HreflangLinks } from "@repo/i18n";
@@ -54,10 +54,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   return {
     title: {
-      template: `%s | ${t("title")}`,
-      default: t("title"),
+      template: "%s | LifeOR2",
+      default: "LifeOR2 — Your connected workspace",
     },
-    description: t("description"),
+    description: "Work with your LifeOR2 records, plans, and finances through conversation.",
     metadataBase: new URL(SITE_URL),
     icons: {
       icon: [
@@ -76,12 +76,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       url: canonicalUrl,
       siteName: t("title"),
       title: t("title"),
-      description: t("description"),
+      description: "Work with your LifeOR2 records, plans, and finances through conversation.",
     },
     twitter: {
       card: "summary_large_image",
       title: t("title"),
-      description: t("description"),
+      description: "Work with your LifeOR2 records, plans, and finances through conversation.",
     },
   };
 }
@@ -123,7 +123,6 @@ export default async function LocaleLayout({
       </head>
       <body>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem nonce={nonce}>
-          <EnvironmentBannerWrapper appName="web" />
           <OfflineBanner label={tOffline("message")} />
           <NextIntlClientProvider messages={messages}>
             <ConvexClientProvider initialToken={token}>

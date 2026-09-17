@@ -4,7 +4,7 @@ import { signIn } from "./helpers/auth";
 import { createDisposableUser } from "./helpers/fixtures";
 
 /**
- * Sign in for real. A fabricated `better-auth.session_token` gets past the
+ * Sign in for real. A fabricated `lifeor2-client.session_token` gets past the
  * proxy (which only checks cookie presence) but not the dashboard layout, which
  * validates the session server-side — so the page redirected and every
  * structural assertion below was checking the sign-in page instead. Some of
@@ -49,7 +49,7 @@ test.describe("Session Management Page", () => {
   }) => {
     await context.addCookies([
       {
-        name: "better-auth.session_token",
+        name: "lifeor2-client.session_token",
         value: "test-session-token",
         domain: "localhost",
         path: "/",
@@ -305,7 +305,7 @@ test.describe("Session Management — route protection", () => {
       {
         // The __Secure- prefix is only a valid cookie with secure: true; without
         // it Chrome rejects the whole addCookies call as "Invalid cookie fields".
-        name: "__Secure-better-auth.session_token",
+        name: "__Secure-lifeor2-client.session_token",
         value: "prod-token-123",
         domain: "localhost",
         path: "/",

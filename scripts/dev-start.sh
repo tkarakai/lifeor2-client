@@ -743,7 +743,7 @@ find_available_port() {
     local max_port=$((preferred + 10))
 
     while [ "$port" -le "$max_port" ]; do
-        if ! lsof -i :"$port" > /dev/null 2>&1; then
+        if ! lsof -nP -iTCP:"$port" -sTCP:LISTEN > /dev/null 2>&1; then
             echo "$port"
             return
         fi
@@ -763,10 +763,29 @@ start_next_app() {
     echo ""
     echo -e "${GREEN}▶ Starting Next.js ($app_name)...${NC}"
 
-    # Find an available port, starting from the preferred one
-    local actual_port=$(find_available_port "$preferred_port")
+    # OAuth callbacks require a stable web origin. Never silently move it.
+    local actual_port="$preferred_port"
+    if [ "$app_name" = "web" ]; then
+        if lsof -nP -iTCP:"$preferred_port" -sTCP:LISTEN > /dev/null 2>&1; then
+            echo -e "${RED}✖ Web port $preferred_port is already listening. Stop that server and retry.${NC}"
+            echo "  The LifeOR2 OAuth callback requires http://localhost:$preferred_port/api/lifeor/oauth/callback"
+            lsof -nP -iTCP:"$preferred_port" -sTCP:LISTEN
+            return 1
+        fi
+    else
+        actual_port=$(find_available_port "$preferred_port")
+    fi
     if [ "$actual_port" != "$preferred_port" ] && [ "$actual_port" != "0" ]; then
         echo -e "  ${YELLOW}Port $preferred_port in use, using $actual_port${NC}"
+    fi
+
+    # Next reads its canonical origin at startup, before serving any requests.
+    if [ "$actual_port" != "0" ]; then
+        update_env_var "$app_dir/.env.local" "NEXT_PUBLIC_SITE_URL" "http://localhost:$actual_port"
+    fi
+
+    if [ "$app_name" = "web" ] && [ "$NEED_CONVEX" = true ]; then
+        bun "$PROJECT_DIR/scripts/configure-lifeor-local.ts" || return 1
     fi
 
     (cd "$app_dir" && bunx next dev --turbopack --port "$actual_port" > "$log_file" 2>&1) &
@@ -872,13 +891,13 @@ LANDING_APP_URL=""
 APP_URLS=""  # Comma-separated list of all app URLs for Better Auth
 
 if [ "$START_WEB" = true ]; then
-    start_next_app "web" 3001
+    start_next_app "web" 3002
     WEB_APP_URL="$LAST_APP_URL"
     APP_URLS="$LAST_APP_URL"
 fi
 
 if [ "$START_ADMIN" = true ]; then
-    start_next_app "admin" 3002
+    start_next_app "admin" 3003
     ADMIN_APP_URL="$LAST_APP_URL"
     if [ -n "$APP_URLS" ]; then
         APP_URLS="$APP_URLS,$LAST_APP_URL"
@@ -923,7 +942,7 @@ if [ "$START_LANDING" = true ]; then
 fi
 
 if [ "$START_STORYBOOK" = true ]; then
-    start_next_app "storybook" 3003
+    start_next_app "storybook" 3004
 fi
 
 # ============================================================
@@ -949,8 +968,8 @@ if [ "$NEED_CONVEX" = true ]; then
     # Seed NEXT_PUBLIC_WEB_APP_URL for landing when web is not started
     if [ "$START_LANDING" = true ] && [ "$START_WEB" = false ]; then
         if ! grep -q "^NEXT_PUBLIC_WEB_APP_URL=" "$PROJECT_DIR/apps/landing/.env.local" 2>/dev/null; then
-            update_env_var "$PROJECT_DIR/apps/landing/.env.local" "NEXT_PUBLIC_WEB_APP_URL" "http://localhost:3001"
-            echo -e "  ${GREEN}✔${NC} NEXT_PUBLIC_WEB_APP_URL defaulted to http://localhost:3001 for landing"
+            update_env_var "$PROJECT_DIR/apps/landing/.env.local" "NEXT_PUBLIC_WEB_APP_URL" "http://localhost:3002"
+            echo -e "  ${GREEN}✔${NC} NEXT_PUBLIC_WEB_APP_URL defaulted to http://localhost:3002 for landing"
         else
             echo -e "  ${GREEN}✔${NC} NEXT_PUBLIC_WEB_APP_URL already set for landing (preserved)"
         fi
@@ -958,8 +977,8 @@ if [ "$NEED_CONVEX" = true ]; then
 
     # Seed ADMIN_SITE_URL in Convex when admin is not started
     if [ "$START_ADMIN" = false ]; then
-        if (cd "$PROJECT_DIR/packages/backend" && bunx convex env set ADMIN_SITE_URL "http://localhost:3002" > /dev/null 2>&1); then
-            echo -e "  ${GREEN}✔${NC} ADMIN_SITE_URL defaulted to http://localhost:3002 in Convex"
+        if (cd "$PROJECT_DIR/packages/backend" && bunx convex env set ADMIN_SITE_URL "http://localhost:3003" > /dev/null 2>&1); then
+            echo -e "  ${GREEN}✔${NC} ADMIN_SITE_URL defaulted to http://localhost:3003 in Convex"
         fi
     fi
 
@@ -993,7 +1012,7 @@ if [ "$NON_INTERACTIVE" = true ]; then
         local_env="$PROJECT_DIR/apps/$app_name/.env.local"
         if [ -f "$local_env" ]; then
             echo "[CI MODE] apps/$app_name/.env.local:"
-            cat "$local_env" 2>/dev/null | sed 's/^/  /' || true
+            grep '^NEXT_PUBLIC_' "$local_env" 2>/dev/null | sed 's/^/  /' || true
         fi
     done
 fi

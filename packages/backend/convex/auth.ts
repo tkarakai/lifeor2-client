@@ -3,6 +3,7 @@ import { requireActionCtx } from "@convex-dev/better-auth/utils";
 import { convex } from "@convex-dev/better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
 import { betterAuth } from "better-auth";
+import { AUTH_COOKIE_PREFIX, SESSION_COOKIE_NAME } from "@repo/auth/cookies";
 import { symmetricDecrypt } from "better-auth/crypto";
 import type { BetterAuthOptions, BetterAuthPlugin } from "better-auth";
 import { admin, emailOTP, haveIBeenPwned, magicLink, twoFactor } from "better-auth/plugins";
@@ -247,7 +248,7 @@ const passwordStrengthPlugin = (
         const cookieHeader = request.headers.get("cookie");
         if (cookieHeader) {
           const cookieName = (ctx as { authCookies?: { sessionToken?: { name?: string } } })
-            .authCookies?.sessionToken?.name ?? "better-auth.session_token";
+            .authCookies?.sessionToken?.name ?? SESSION_COOKIE_NAME;
           const match = cookieHeader
             .split(";")
             .map((c) => c.trim())
@@ -822,6 +823,7 @@ export const createAuthOptions = (
     // limits via convex-helpers' token-bucket system, which is OCC-safe.
     rateLimit: { enabled: false },
     advanced: {
+      cookiePrefix: AUTH_COOKIE_PREFIX,
       ipAddress: {
         ipAddressHeaders: ["x-forwarded-for", "x-real-ip"],
       },

@@ -1,6 +1,6 @@
 # LifeOR2 Client scope
 
-This is the independent `lifeor2-client` repository. Read [docs/PRD.md](docs/PRD.md) for the product direction and [README.md](README.md) for current project status. The current deliverable is a PRD and imported starter, not an implemented client.
+This is the independent `lifeor2-client` repository. Read [docs/PRD.md](docs/PRD.md) for the product direction and [README.md](README.md) for current project status. The phase-one text client is implemented in `apps/web` and `packages/backend/convex/lifeor*`. Read [docs/lifeor2-integration.md](docs/lifeor2-integration.md) for the source-contract reference and setup, and [docs/implementation-status.md](docs/implementation-status.md) for validation still required. Voice remains a later milestone.
 
 The conventions below are inherited from `web-app-starter`. Its topic guides remain useful implementation references, but upstream roadmaps and “active work tracker” notes are historical context, not tasks for this client. Product scope and subsequent user instructions take precedence.
 

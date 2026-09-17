@@ -17,7 +17,7 @@ test.describe("Session Cookie Security", () => {
     // Set a session cookie to pass the proxy layer
     await context.addCookies([
       {
-        name: "better-auth.session_token",
+        name: "lifeor2-client.session_token",
         value: "test-session-token",
         domain: "localhost",
         path: "/",
@@ -44,7 +44,7 @@ test.describe("Session Cookie Security", () => {
     // Set a session cookie that's already expired
     await context.addCookies([
       {
-        name: "better-auth.session_token",
+        name: "lifeor2-client.session_token",
         value: "expired-token-value",
         domain: "localhost",
         path: "/",
@@ -65,7 +65,7 @@ test.describe("Session Cookie Security", () => {
   }) => {
     await context.addCookies([
       {
-        name: "better-auth.session_token",
+        name: "lifeor2-client.session_token",
         value: "secret-session-token-12345",
         domain: "localhost",
         path: "/",

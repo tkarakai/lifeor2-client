@@ -1,0 +1,34 @@
+name: LifeOR2 client validation
+
+# Deliberately manual until this repository's Actions/deployment setup is enabled.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_SITE_URL: http://localhost:3002
+      NEXT_PUBLIC_CONVEX_URL: http://127.0.0.1:3210
+      NEXT_PUBLIC_CONVEX_SITE_URL: http://127.0.0.1:3211
+      NEXT_PUBLIC_LANDING_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-bun
+        with:
+          bun-version: 1.3.9
+          node-version: 22
+      - run: bun run --cwd apps/web lint
+      - run: bun run --cwd apps/web typecheck
+      - run: bun run --cwd apps/web test
+      - run: bun run --cwd packages/backend test:convex
+      - run: bun run --cwd apps/web build
+      - run: bunx playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: bun run --cwd apps/web test:e2e -- qa/e2e/lifeor-workspace.spec.ts --workers=1 --reporter=line
+      # Live inference and authorized LifeOR2 data checks are operator-run;
+      # never put production grants or inference keys in untrusted PR jobs.

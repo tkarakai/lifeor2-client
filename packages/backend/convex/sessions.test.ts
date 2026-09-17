@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import { getSessionCookie } from "better-auth/cookies";
+import { AUTH_COOKIE_PREFIX } from "@repo/auth/cookies";
 
 import type { SessionInfo } from "./sessions";
 import { parseUserAgent } from "./parseUserAgent";
@@ -68,23 +70,20 @@ describe("sessions module", () => {
       expect(extracted).toBe(token);
     });
 
-    test("session token is extracted from cookie string", () => {
-      const cookies =
-        "other=value; better-auth.session_token=my-session-token; another=data";
-      const match = cookies.match(/better-auth\.session_token=([^;]+)/);
-      expect(match?.[1]).toBe("my-session-token");
-    });
+    test.each(["lifeor2-client.session_token", "__Secure-lifeor2-client.session_token"])(
+      "reads %s without confusing another app's session",
+      (name) => {
+        const headers = new Headers({ cookie: `better-auth.session_token=foreign; ${name}=client-token` });
+        expect(getSessionCookie(headers, { cookiePrefix: AUTH_COOKIE_PREFIX })).toBe("client-token");
+      },
+    );
 
-    test("returns null when no session token in cookies", () => {
-      const cookies = "other=value; another=data";
-      const match = cookies.match(/better-auth\.session_token=([^;]+)/);
-      expect(match).toBeNull();
-    });
-
-    test("returns null for empty cookie string", () => {
-      const match = "".match(/better-auth\.session_token=([^;]+)/);
-      expect(match).toBeNull();
-    });
+    test.each(["", "other=value", "better-auth.session_token=foreign", "other-lifeor2-client.session_token=foreign"])(
+      "ignores unrelated cookies: %s",
+      (cookie) => {
+        expect(getSessionCookie(new Headers({ cookie }), { cookiePrefix: AUTH_COOKIE_PREFIX })).toBeNull();
+      },
+    );
   });
 
   describe("session revocation guards", () => {

@@ -1,0 +1,48 @@
+# Implementation and release checks
+
+Phase-one text functionality is implemented in `apps/web` and the separate client Convex backend. Voice remains the PRD's later milestone. Deployment and live business-data acceptance are not implied by the implementation.
+
+## Implemented
+
+- Retained Better Auth, invitation-only defaults, bootstrap, recovery and account administration. Added loopback-only dev-account/mock-email safeguards.
+- Private Convex persistence for grants, OAuth attempts, conversations, runs, messages, tool outcomes and decisions, with explicit ownership checks.
+- OAuth discovery, PKCE/state/session/issuer/resource binding, encrypted credentials, serialized rotation and disconnect.
+- Dataset-bound conversations, rename/delete, reload recovery, deduplicated sends, run locks, interruption and cancellation.
+- Pi agent-core embedding, server-configured OpenAI-compatible inference, grant-specific MCP catalog search and schema-validating execution.
+- Persisted write keys, server revision checks, actual MCP v2 form elicitation, single-use user decisions, and bounded failures.
+- Responsive workspace, mobile history drawer, light/dark themes, safe Markdown, activity detail, draft preservation and explicit error/recovery states.
+- Reproducible local setup, hosted/same-machine guidance, source-contract references, backup/restore and operational constraints.
+
+Validation run on 2026-09-16: 76 Bun unit/integration tests, 188 Convex tests,
+21 existing component tests, and three Chromium product journeys pass. Workspace
+TypeScript checks and the production web build pass. Web lint has zero errors
+and ten pre-existing unused-variable warnings in inherited tests.
+
+The manual `.github/workflows/ci-lifeor.yml` runs product checks without requiring
+production credentials. It does not enable Actions or deploy the application.
+
+## Acceptance evidence
+
+| PRD criteria | Automated coverage / remaining live check |
+| --- | --- |
+| AUTH-1 / AUTH-2 | Browser API authentication and Origin checks; private gateway denial; cross-owner history, run and decision checks; retained enrollment tests. |
+| CONN-1 | Token encryption/tampering/owner binding, serialized refresh, lost response and crash handling tested. Actual registered-client browser consent/renewal/revocation still requires the operator's LifeOR2 registration. |
+| DATA-1 | Official MCP v2 transport fixture exercises actual tool execution and result delivery. Real LifeOR2 record read/create/edit and UI convergence remain release checks. |
+| DATA-2 | Exact write-key reuse, dataset rejection, malformed arguments and revision-field preservation tested. Real server conflict and request replay behavior must be checked in a disposable dataset. |
+| DATA-3 | Official MCP `input_required` → form elicitation → cancel/accept round trips tested. Persistence rejects changed IDs, other owners, repeats and expired confirmations; browser test covers the confirmation UI. |
+| CHAT-1 / CHAT-2 | Persistence tests cover restart interruption, completed outcomes, grant replacement, deduplication and competing starts. Browser fixtures cover conversation context and draft recovery. |
+| LLM-1 | Packages are pinned; Pi and MCP v2 load/run under Bun 1.3.9. The configured `gemma-4-12B-it-8bit` endpoint at `http://127.0.0.1:8000/v1` returned **401 Invalid API key**. Full real-model round trip remains pending a valid `LLM_API_KEY`. No performance claim is made. |
+| LLM-2 | Validated endpoint/limit configuration, bounded turn/round/context/output sizes, per-user/global concurrency, cancellation and no cloud fallback. |
+| UX-1 | Chromium desktop and 360px mobile checks, keyboard dialogs, light/dark screenshots and axe checks. Real connected-user journeys and additional browser engines remain release checks. |
+| OPS-1 | Both deployment profiles, private credentials, local bootstrap, retention, restore and upgrade procedures documented. Actual hosted deployment/backup restore is not performed. |
+
+## Before release
+
+1. Register the actual callback in LifeOR2 and complete consent with a real client session.
+2. Set the local model API key privately and run `smoke:model`; record inference server version, model revision/quantization, host hardware, and measured latency.
+3. In a disposable LifeOR2 dataset, read, create, edit with a stale revision, retry an identical write, cancel then confirm permanent deletion, and observe another LifeOR2 UI update.
+4. Exercise expired/revoked grants, denied scopes, removed datasets, interrupted refresh and server restart while a write is in flight. Confirm that no write or confirmation is automatically replayed.
+5. Run browser checks against the real connected system, including multiple devices, expired client sessions, Safari and Firefox.
+6. Validate the production HTTPS/tunnel setup and a backup restore. Configure the documented backup expiry in the actual provider. Enable repository workflows only when its infrastructure is configured.
+
+Current scope boundaries: one app instance; up to 200 conversations and 20 turns per conversation; dataset-scoped operations only; new grants require new conversations. The new workspace copy is English; existing localized authentication/account screens are retained. Voice, multi-instance coordination and unscoped dataset creation are not shipped here.

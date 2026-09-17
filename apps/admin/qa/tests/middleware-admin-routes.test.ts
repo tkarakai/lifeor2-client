@@ -39,7 +39,7 @@ describe("proxy — admin session and MFA settings routes", () => {
     it("allows /dashboard/sessions with dev session cookie", () => {
       const response = proxy(
         createRequest("/dashboard/sessions", {
-          "better-auth.session_token": "token-123",
+          "lifeor2-client.session_token": "token-123",
         })
       );
       expect(response.status).toBe(200);
@@ -48,7 +48,7 @@ describe("proxy — admin session and MFA settings routes", () => {
     it("allows /dashboard/sessions with production session cookie", () => {
       const response = proxy(
         createRequest("/dashboard/sessions", {
-          "__Secure-better-auth.session_token": "token-123",
+          "__Secure-lifeor2-client.session_token": "token-123",
         })
       );
       expect(response.status).toBe(200);
@@ -64,14 +64,14 @@ describe("proxy — admin session and MFA settings routes", () => {
 
     it("allows /configure/security with dev session cookie", () => {
       const response = proxy(
-        createRequest("/configure/security", { "better-auth.session_token": "token-123" })
+        createRequest("/configure/security", { "lifeor2-client.session_token": "token-123" })
       );
       expect(response.status).toBe(200);
     });
 
     it("allows /settings with dev session cookie", () => {
       const response = proxy(
-        createRequest("/settings", { "better-auth.session_token": "token-123" })
+        createRequest("/settings", { "lifeor2-client.session_token": "token-123" })
       );
       expect(response.status).toBe(200);
     });
@@ -81,7 +81,7 @@ describe("proxy — admin session and MFA settings routes", () => {
     it("sets CSP header on /dashboard/sessions", () => {
       const response = proxy(
         createRequest("/dashboard/sessions", {
-          "better-auth.session_token": "token-123",
+          "lifeor2-client.session_token": "token-123",
         })
       );
       const csp = response.headers.get("Content-Security-Policy");
@@ -92,7 +92,7 @@ describe("proxy — admin session and MFA settings routes", () => {
 
     it("sets CSP header on /configure/security", () => {
       const response = proxy(
-        createRequest("/configure/security", { "better-auth.session_token": "token-123" })
+        createRequest("/configure/security", { "lifeor2-client.session_token": "token-123" })
       );
       const csp = response.headers.get("Content-Security-Policy");
       expect(csp).toBeDefined();
@@ -104,7 +104,7 @@ describe("proxy — admin session and MFA settings routes", () => {
     it("includes rate limit headers on /dashboard/sessions", () => {
       const response = proxy(
         createRequest("/dashboard/sessions", {
-          "better-auth.session_token": "token-123",
+          "lifeor2-client.session_token": "token-123",
         })
       );
       expect(response.headers.get("X-RateLimit-Limit")).toBe("100");

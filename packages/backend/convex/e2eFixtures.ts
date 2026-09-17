@@ -1,3 +1,4 @@
+import { isLocalDevelopment } from "./developmentOnly";
 /**
  * Disposable user fixtures for E2E tests.
  *
@@ -42,7 +43,7 @@ const E2E_EMAIL_PATTERN = /^e2e-[a-z0-9-]{1,60}@e2e\.local$/;
 const MIN_PASSWORD_LENGTH = 12;
 
 function devFixturesEnabled(): boolean {
-  return process.env.DEV_SEED_ENABLED === "true";
+  return process.env.DEV_SEED_ENABLED === "true" && isLocalDevelopment();
 }
 
 function notFound(): Response {

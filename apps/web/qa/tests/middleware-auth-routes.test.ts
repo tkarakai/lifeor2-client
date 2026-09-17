@@ -37,7 +37,7 @@ describe("proxy — new auth guest routes", () => {
 
     it("redirects /en/forgot-password to /en/dashboard when authenticated", () => {
       const response = proxy(
-        createRequest("/en/forgot-password", { "better-auth.session_token": "token-123" })
+        createRequest("/en/forgot-password", { "lifeor2-client.session_token": "token-123" })
       );
       expect(response.status).toBe(307);
       expect(new URL(response.headers.get("location")!).pathname).toBe("/en/dashboard");
@@ -46,7 +46,7 @@ describe("proxy — new auth guest routes", () => {
     it("allows /en/forgot-password with session_cleared param even when authenticated", () => {
       const response = proxy(
         createRequest("/en/forgot-password?session_cleared=1", {
-          "better-auth.session_token": "token-123",
+          "lifeor2-client.session_token": "token-123",
         })
       );
       expect(response.status).toBe(200);
@@ -55,7 +55,7 @@ describe("proxy — new auth guest routes", () => {
     it("redirects /en/forgot-password to /en/dashboard with __Secure- cookie", () => {
       const response = proxy(
         createRequest("/en/forgot-password", {
-          "__Secure-better-auth.session_token": "token-123",
+          "__Secure-lifeor2-client.session_token": "token-123",
         })
       );
       expect(response.status).toBe(307);
@@ -76,7 +76,7 @@ describe("proxy — new auth guest routes", () => {
 
     it("redirects /en/reset-password to /en/dashboard when authenticated", () => {
       const response = proxy(
-        createRequest("/en/reset-password", { "better-auth.session_token": "token-123" })
+        createRequest("/en/reset-password", { "lifeor2-client.session_token": "token-123" })
       );
       expect(response.status).toBe(307);
       expect(new URL(response.headers.get("location")!).pathname).toBe("/en/dashboard");
@@ -91,7 +91,7 @@ describe("proxy — new auth guest routes", () => {
 
     it("allows /en/verify-email when authenticated", () => {
       const response = proxy(
-        createRequest("/en/verify-email", { "better-auth.session_token": "token-123" })
+        createRequest("/en/verify-email", { "lifeor2-client.session_token": "token-123" })
       );
       expect(response.status).toBe(200);
     });
@@ -143,7 +143,7 @@ describe("proxy — new auth guest routes", () => {
 
     it("redirects /fr/forgot-password to /fr/dashboard when authenticated", () => {
       const response = proxy(
-        createRequest("/fr/forgot-password", { "better-auth.session_token": "token-123" })
+        createRequest("/fr/forgot-password", { "lifeor2-client.session_token": "token-123" })
       );
       expect(response.status).toBe(307);
       expect(new URL(response.headers.get("location")!).pathname).toBe("/fr/dashboard");

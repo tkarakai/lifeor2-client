@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3001",
+    "dev": "next dev --port 3002",
     "prebuild": "../../scripts/copy-shared-assets.sh",
     "build": "next build",
     "start": "next start",
@@ -16,10 +16,14 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "size": "size-limit",
-    "size:check": "size-limit --json"
+    "size:check": "size-limit --json",
+    "smoke:model": "bun scripts/smoke-model.ts"
   },
   "dependencies": {
     "@convex-dev/better-auth": "0.12.5",
+    "@earendil-works/pi-agent-core": "0.85.1",
+    "@earendil-works/pi-ai": "0.85.1",
+    "@modelcontextprotocol/client": "2.0.0",
     "@repo/auth": "workspace:*",
     "@repo/backend": "workspace:*",
     "@repo/design-patterns": "workspace:*",
@@ -27,6 +31,7 @@
     "@repo/edge-rate-limit": "workspace:*",
     "@repo/i18n": "workspace:*",
     "@types/qrcode": "^1.5.6",
+    "ajv": "8.17.1",
     "convex": "1.31.7",
     "lucide-react": "0.562.0",
     "next": "16.1.6",
@@ -34,10 +39,15 @@
     "next-themes": "^0.4.6",
     "qrcode": "^1.5.4",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
+    "server-only": "0.0.1",
+    "typebox": "1.3.7"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.0",
+    "@modelcontextprotocol/server": "2.0.0",
     "@playwright/test": "^1.58.0",
     "@size-limit/file": "^11.0.0",
     "@tailwindcss/postcss": "4.1.18",

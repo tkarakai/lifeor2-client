@@ -1,6 +1,6 @@
 # LifeOR2 Client — Product Requirements
 
-Status: Draft for review; implementation has not started.
+Status: Phase-one text implementation available; live integration and release validation pending. See [implementation status](implementation-status.md) and [setup/operations](lifeor2-integration.md).
 
 Date: 2026-09-16
 
@@ -152,7 +152,7 @@ Document durable storage, encryption-key backup, restore, and deployment upgrade
 
 ### Proposed configuration contract
 
-These are proposed names, not implemented settings. Keep the starter's existing auth/Convex configuration and document which process owns each value.
+These settings are implemented for phase one. See the integration guide for process ownership, the private gateway secret, and validated bounds.
 
 | Setting | Purpose |
 | --- | --- |
@@ -200,7 +200,7 @@ Use focused adapter/auth tests, integration tests with controlled failure inject
 
 ## 8. Delivery sequence
 
-1. **PRD and repository — current deliverable.** Import the starter, preserve provenance, document requirements and review choices. No client feature implementation or deployment.
+1. **PRD and repository — completed foundation.** Import the starter, preserve provenance, document requirements and review choices. No client feature implementation or deployment.
 2. **Foundation and integration proof.** Establish client branding/auth/enrollment, isolated persistence, and a Pi + Bun + local endpoint spike that calls a read-only MCP tool. Pin versions and resolve server-process hosting.
 3. **Text MVP.** Implement connection lifecycle, dataset-bound chat, streaming, durable history, writes, confirmations, cancellation, limits, and polished responsive states.
 4. **Release validation.** Run acceptance checks, verify both deployment profiles, tailor CI, and write operational documentation.
