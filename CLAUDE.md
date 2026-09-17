@@ -1,6 +1,6 @@
 # LifeOR2 Client scope
 
-Follow [CONTRIBUTING.md](CONTRIBUTING.md) for feature branches, pull requests, CI, and squash merges. Do not commit or push directly to `main`.
+Follow [CONTRIBUTING.md](CONTRIBUTING.md) for feature branches, pull requests, CI, and squash or rebase merges. Do not commit or push directly to `main`.
 
 This is the independent `lifeor2-client` repository. Read [docs/PRD.md](docs/PRD.md) for the product direction and [README.md](README.md) for current project status. The phase-one text client is implemented in `apps/web` and `packages/backend/convex/lifeor*`. Read [docs/lifeor2-integration.md](docs/lifeor2-integration.md) for the source-contract reference and setup, and [docs/implementation-status.md](docs/implementation-status.md) for validation still required. Voice remains a later milestone.
 
