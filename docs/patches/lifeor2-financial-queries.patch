@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/convex/agentQueries.ts
-@@ -0,0 +1,329 @@
+@@ -0,0 +1,339 @@
 +import { v } from "convex/values";
 +import { query, type QueryCtx } from "./lib/scoped";
 +import { owned, requireUser } from "./lib/access";
@@ -37,10 +37,20 @@
 +  args: { query: v.string(), kind: v.optional(v.string()), ...pageArgs },
 +  handler: async (ctx, a) => {
 +    const user = await requireUser(ctx);
-+    const page = await ctx.db
-+      .query("entity")
-+      .withIndex("by_user", (q) => q.eq("user_id", user._id))
-+      .paginate({ cursor: a.cursor ?? null, numItems: limit(a.limit) });
++    // Legacy Live includes rows without dataset_id; named datasets can use an exact index.
++    const entitiesQuery = ctx.scope.legacy
++      ? ctx.db
++          .query("entity")
++          .withIndex("by_user", (q) => q.eq("user_id", user._id))
++      : ctx.db
++          .query("entity")
++          .withIndex("by_user_dataset", (q) =>
++            q.eq("user_id", user._id).eq("dataset_id", ctx.scope.datasetId),
++          );
++    const page = await entitiesQuery.paginate({
++      cursor: a.cursor ?? null,
++      numItems: limit(a.limit ?? 50),
++    });
 +    const entities = await Promise.all(page.page.map((e) => entityAt(ctx, e)));
 +    return {
 +      records: entities
@@ -332,7 +342,7 @@
 +});
 --- /dev/null
 +++ b/tests/agent-queries.test.ts
-@@ -0,0 +1,365 @@
+@@ -0,0 +1,399 @@
 +/// <reference types="vite/client" />
 +import { convexTest } from "convex-test";
 +import { expect, test } from "vitest";
@@ -698,6 +708,52 @@
 +    expect(result.currencies[0].averageExact.denominatorMonths).toBe(2);
 +  }
 +});
++
++test("named-dataset person search does not page through unrelated datasets", async () => {
++  const f = await setup();
++  const create = makeFunctionReference<"mutation">("datasets:create");
++  const foreign = await f.alice.mutation(create, { name: "Other records" });
++  const target = await f.alice.mutation(create, { name: "Requested records" });
++  await f.t.run(async (ctx) => {
++    for (let i = 0; i < 100; i++)
++      await ctx.db.insert("entity", {
++        user_id: f.userId,
++        dataset_id: foreign,
++        created_at: i,
++        kind: "Person",
++        display_name: "Alex elsewhere",
++      });
++    for (let i = 0; i < 31; i++)
++      await ctx.db.insert("entity", {
++        user_id: f.userId,
++        dataset_id: target,
++        created_at: i + 100,
++        kind: "Person",
++        display_name: i === 0 ? "Alex here" : `Person ${i}`,
++      });
++  });
++  const result = await f.alice.query(
++    makeFunctionReference<"query">("agentQueries:searchEntities"),
++    { datasetId: target, query: "Alex" },
++  );
++  expect(result.records.map((p: { name: string }) => p.name)).toEqual([
++    "Alex here",
++  ]);
++  expect(result.complete).toBe(true);
++  expect(result.nextCursor).toBeNull();
++});
+--- a/convex/schema/core.ts
++++ b/convex/schema/core.ts
+@@ -13,5 +13,7 @@
+     display_name: v.string(),
+     user_id: v.string(), // Better Auth component ID; not an app-table ID,
+-  }).index("by_user", ["user_id"]),
++  })
++    .index("by_user", ["user_id"])
++    .index("by_user_dataset", ["user_id", "dataset_id"]),
+-
++
+   // Arrangement: A relationship or agreement with temporal validity
 --- a/convex/schema/finance.ts
 +++ b/convex/schema/finance.ts
 @@ -49,4 +49,5 @@
@@ -718,7 +774,7 @@
 @@ -21,4 +21,9 @@
  }
  const descriptions: Record<string, string> = {
-+  "agentQueries.searchEntities": "Find people, family members, companies and households by name; query can be empty. Paginated: follow nextCursor before concluding uniqueness or absence. Returns compact IDs and names.",
++  "agentQueries.searchEntities": "Find people, family members, companies and households by name; query can be empty. Omit limit for the default 50-row scan within the dataset (maximum 50). Paginated: follow nextCursor before concluding uniqueness or absence. Returns compact IDs and names.",
 +  "agentQueries.searchJournals": "Search financial journal records by inclusive from/to dates (YYYY-MM-DD), memo text, chart and explicitly attributed person/entity. Returns bounded pages WITH posting amounts in minor units, currencies and account types. Follow nextCursor even for empty pages.",
 +  "agentQueries.incomeSummary": "Calculate a person's monthly income, salary/earnings totals and average over fromMonth..toMonth (YYYY-MM). Resolve entityId first. Deterministic gross recognized Income-account totals, NOT net take-home pay. Includes signed reversals, explicit attribution, separate currencies, missing-month warnings and source journal IDs. Prefer this to listing all journals for income questions.",
 +  "finance.getJournalEntry": "Read one journal with all posting amounts, currencies and account IDs. Use searchJournals for filtered financial searches.",
@@ -780,7 +836,7 @@
 +  {
 +    "name": "agentQueries.searchEntities",
 +    "title": "Find people and organizations",
-+    "description": "Find people, family members, companies and households by name; query can be empty. Paginated: follow nextCursor before concluding uniqueness or absence. Returns compact IDs and names.",
++    "description": "Find people, family members, companies and households by name; query can be empty. Omit limit for the default 50-row scan within the dataset (maximum 50). Paginated: follow nextCursor before concluding uniqueness or absence. Returns compact IDs and names.",
 +    "functionName": "agentQueries:searchEntities",
 +    "kind": "query",
 +    "scope": "data:read",

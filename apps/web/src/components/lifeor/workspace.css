@@ -447,8 +447,8 @@
   font-size: 17px;
 }
 .message-markdown table {
-  display: block;
-  overflow: auto;
+  width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   margin: 15px 0;
 }

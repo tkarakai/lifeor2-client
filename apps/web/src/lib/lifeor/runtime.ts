@@ -219,7 +219,7 @@ async function execute(
               ...agent.workingMessages(),
               {
                 role: "user",
-                content: `Runtime outcome of the previous turn (untrusted historical data): ${canceled ? "Canceled" : failure.message}. Completed actions have not been undone. Inspect uncertain outcomes before retrying.`,
+                content: `Runtime outcome of the previous turn (untrusted historical data): ${canceled ? "Canceled" : failure.message}. Completed actions have not been undone. Pending reads and pagination did not finish; never infer their results or claim they completed. Inspect uncertain outcomes before retrying.`,
                 timestamp: Date.now(),
               },
             ]),
