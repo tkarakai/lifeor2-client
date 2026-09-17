@@ -80,7 +80,7 @@ Every `/api/lifeor/*` operation validates a fresh Better Auth session through th
 
 The only exception to expired-session rejection is **server-key-authorized finalization of an already owned run**: recording its result/error must still succeed after logout. It cannot start a turn, read credentials, or approve a confirmation. Runtime sessions are checked every five seconds, and every tool request resolves its connection through the authenticated gateway. Sign-out cancels active work but retains the grant. Explicit disconnect revokes the grant before clearing credentials. If revocation cannot be reached, the UI reports failure and retains the credential so disconnect can be retried.
 
-New tables: `lifeorConnections`, `lifeorOAuth`, `lifeorConversations`, `lifeorRuns`. This is an additive schema change; existing starter records do not need migration. Regenerate the Convex API using `convex dev`/codegen; never hand-edit generated files.
+Client tables: `lifeorConnections`, `lifeorOAuth`, `lifeorConversations`, `lifeorRuns`, `lifeorMemory`, `lifeorTraffic`. This is an additive schema change; existing starter records do not need migration. Regenerate the Convex API using `convex dev`/codegen; never hand-edit generated files.
 
 Tokens and PKCE material use AES-256-GCM with the owner identity as authenticated additional data. Refresh is serialized per owner within the single process and guarded by a persisted refresh marker. A crash or lost refresh response requires renewed authorization; the old refresh credential is never replayed. A new grant gets a new connection identity. Existing conversations remain readable but cannot continue with the replacement grant; explicitly start a new conversation in a currently authorized dataset.
 
