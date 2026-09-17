@@ -20,7 +20,9 @@ As in `web-app-starter`, PRs require zero general approvals, with code-owner rev
 
 The inherited Security workflow is enabled, matching the starter. Its checks are additional to the required LifeOR2 check. The six inherited app/shared CI workflows stay disabled in favor of the client-specific CI flow.
 
-Deployment (`cd-*`) and Renovate workflows remain disabled: this repository has no deployment credentials, configured deployment environments, or `RENOVATE_TOKEN`. Enable them after configuring this client's infrastructure and the dedicated Renovate token described in `docs/dependency-updates.md`. The inherited staging workflow also calls the starter CI workflows and must be adapted to the LifeOR2 check before enabling it. Repository auto-merge availability alone does not start Renovate or deploy anything.
+Renovate owns dependency update PRs, including security fixes; Dependabot provides vulnerability alerts and dependency-graph data, while GitHub dependency review checks PRs. Dependabot's version-update and security-update PR automation stays disabled to avoid duplicate PRs. See [dependency updates](docs/dependency-updates.md) for the merge policy and Renovate activation steps. Renovate remains disabled until its repository-scoped `RENOVATE_TOKEN` secret is configured and the first run is verified.
+
+Deployment (`cd-*`) workflows remain disabled because this repository has no deployment credentials or configured deployment environments. The inherited staging workflow also calls the starter CI workflows and must be adapted to the LifeOR2 check before enabling it. Repository auto-merge availability alone does not deploy anything.
 
 ## Main protection
 
