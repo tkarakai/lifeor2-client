@@ -489,9 +489,12 @@ export async function adapter(
       name: "present_report",
       label: "Present verified report",
       description:
-        "Finish this answer by displaying verified report facts directly. Use after financial, payroll, current-debt, project, timeline, cash, calendar or source-excerpt reports. Supply their reportIds and choose a view: by_period for monthly/yearly breakdowns, by_account for categories, summary otherwise. This ends the response without rewriting amounts. For multi-part answers combine up to four report IDs. Saved report details support offset and limit (default 50); totals always cover all matching rows. Do not write your own monetary summary instead.",
+        "Finish this answer by displaying verified report facts directly. Supply their reportIds and choose a view: by_period for monthly/yearly breakdowns, by_account for categories, summary otherwise. If evidence is related but does not answer the requested fact, set conclusion=insufficient_evidence: it states that limitation and preserves the evidence. Do not search endlessly or substitute a different fact. For multi-part answers combine up to four report IDs. Saved report details support offset and limit (default 50); totals always cover all matching rows. Do not write your own monetary summary instead.",
       parameters: Type.Object({
         reportIds: Type.Array(Type.String(), { minItems: 1, maxItems: 4 }),
+        ...(presentationTool.inputSchema.properties?.conclusion ? { conclusion: Type.Optional(Type.Literal("insufficient_evidence", {
+          description: "The retrieved evidence does not establish the requested answer. State that limitation, without claiming global absence, and show unchanged verified evidence.",
+        })) } : {}),
         offset: Type.Optional(Type.Integer({ minimum: 0 })),
         limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
         ...(presentationTool.inputSchema.properties?.order ? { order: Type.Optional(Type.Union([Type.Literal("amount_desc"), Type.Literal("amount_asc")], {

@@ -610,3 +610,27 @@ for (const target of ["scenario", "payment", "category"] as const) {
     expect(completed).toEqual([name]);
   });
 }
+
+test("verified presentation can state insufficient evidence without allowing invented conclusions", async () => {
+  let answer: string | undefined;
+  const dispatched: Record<string, unknown>[] = [];
+  const client = {
+    listTools: async () => ({ tools: [{ name: "reports.present", annotations: { readOnlyHint: true }, inputSchema: {
+      type: "object", properties: { datasetId: { type: "string" }, reportIds: { type: "array", items: { type: "string" } }, conclusion: { type: "string", enum: ["insufficient_evidence"] } }, required: ["datasetId", "reportIds"], additionalProperties: false,
+    } }] }),
+    setRequestHandler: () => {},
+    callTool: async (call: { arguments: Record<string, unknown> }) => {
+      dispatched.push(call.arguments);
+      return { structuredContent: { answer: "The retrieved evidence does not establish the requested fact. Recorded birth date: February 12, 1990.", reportIds: ["source"] } };
+    },
+  } as unknown as Client;
+  const tools = await adapter(client, (async () => null) as Store, "run", "dataset", new AbortController().signal, () => {}, text => { answer = text; });
+  const present = tools.find(t => t.name === "present_report")!;
+  expect(JSON.stringify(present.parameters)).toContain("insufficient_evidence");
+  await present.execute("supported", { reportIds: ["source"], conclusion: "insufficient_evidence" });
+  expect(answer).toContain("does not establish");
+  expect(dispatched).toEqual([{ datasetId: "dataset", reportIds: ["source"], conclusion: "insufficient_evidence" }]);
+  const rejected = await present.execute("invented", { reportIds: ["source"], conclusion: "Born in Chicago" });
+  expect(rejected.details).toEqual({ isError: true });
+  expect(dispatched).toHaveLength(1);
+});
