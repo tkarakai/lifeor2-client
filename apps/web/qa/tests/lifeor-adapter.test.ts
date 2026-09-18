@@ -490,3 +490,33 @@ test("server-computed clock choices finish verbatim and block a later write", as
   expect((await call.execute("late", { name: "records.edit", arguments: {} })).details).toEqual({ isError: true });
   expect(calls).toBe(1);
 });
+
+test("a write requires fresh queried reports, not a reread of an old saved snapshot", async () => {
+  let query = 0;
+  const presented: unknown[] = [];
+  const names = ["reports.finances", "reports.read", "reports.present", "records.edit"];
+  const client = {
+    listTools: async () => ({ tools: names.map(name => ({ name, annotations: {readOnlyHint:name!=="records.edit"}, inputSchema: { type:"object",properties:{datasetId:{type:"string"},reportIds:{type:"array",items:{type:"string"}}},required:["datasetId"] } })) }),
+    setRequestHandler: () => {},
+    callTool: async (call: {name:string;arguments:Record<string,unknown>}) => {
+      if (call.name === "reports.finances") return {structuredContent:{reportId:`report-${++query}`}};
+      if (call.name === "reports.read") return {structuredContent:{reportId:"report-1"}};
+      if (call.name === "reports.present") { presented.push(call.arguments.reportIds); return {structuredContent:{answer:"Current evidence"}}; }
+      return {structuredContent:{saved:true}};
+    },
+  } as unknown as Client;
+  let answer: string | undefined;
+  const tools = await adapter(client,(async()=>null) as Store,"run","dataset",new AbortController().signal,()=>{},text=>{answer=text;});
+  const call = tools.find(t=>t.name==="call_tool")!;
+  const run = (name:string,arguments_:Record<string,unknown>={}) => call.execute(name,{name,arguments:arguments_});
+  await run("reports.finances");
+  await run("records.edit");
+  expect(JSON.stringify((await run("reports.present",{reportIds:["report-1"]})).content)).toContain("STALE_REPORT_AFTER_WRITE");
+  await run("reports.read");
+  expect((await run("reports.present",{reportIds:["report-1"]})).details).toEqual({isError:true});
+  expect(presented).toEqual([]);
+  await run("reports.finances");
+  await run("reports.present",{reportIds:["report-2"]});
+  expect(presented).toEqual([["report-2"]]);
+  expect(answer).toBe("Current evidence");
+});

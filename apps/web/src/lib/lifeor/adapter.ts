@@ -131,6 +131,8 @@ export async function adapter(
   const reads = new Map<string, number>();
   const accountNames = new Map<string, string>();
   let reportIds: string[] = [];
+  let recordsChanged = false;
+  const freshReportIds = new Set<string>();
   let awaitingClarification = false;
   const exposed: AgentTool[] = [
     {
@@ -261,6 +263,10 @@ export async function adapter(
             isError: true,
             details: { isError: true },
           };
+        if (recordsChanged && tool.name === "reports.present" && Array.isArray(args.reportIds) && args.reportIds.some(id => typeof id !== "string" || !freshReportIds.has(id))) {
+          await event("blocked", "A saved report predates the changes in this turn", { reportIds: args.reportIds });
+          return { content: [{ type: "text", text: JSON.stringify({ code: "STALE_REPORT_AFTER_WRITE", message: "Records changed in this turn. Confirm the write from its returned result, or run a fresh query before presenting updated data. Reading an old saved report does not refresh it.", freshReportIds: [...freshReportIds] }) }], isError: true, details: { isError: true } };
+        }
         const reading = tool.annotations?.readOnlyHint === true;
         if (tool.name === "records.recordExpense") {
           const accountId = String(args.paidFromAccountId);
@@ -338,6 +344,8 @@ export async function adapter(
             finishReport?.(normalized.answer);
           if (!result.isError && !reading) {
             reportIds = [];
+            freshReportIds.clear();
+            if (!(normalized && typeof normalized === "object" && "status" in normalized && normalized.status === "needs_input")) recordsChanged = true;
             requirePresentation?.(false, []);
             finishReport?.(undefined);
           }
@@ -367,10 +375,11 @@ export async function adapter(
             // finalizing an answer that was prepared earlier in that batch.
             finishReport?.(undefined);
             const record = normalized as Record<string, unknown>;
+            if (tool.name !== "reports.read") freshReportIds.add(normalized.reportId);
             const emptyTimeline = record.reportType === "timeline" && record.queryComplete === true && record.itemsComplete === true && record.matchedCount === 0;
             // An empty calendar result has no monetary facts to protect. It must
             // not prevent an ordinary absence explanation or unsupported-request response.
-            if (!emptyTimeline) reportIds = [...new Set([...reportIds, normalized.reportId])];
+            if (!emptyTimeline && (!recordsChanged || freshReportIds.has(normalized.reportId))) reportIds = [...new Set([...reportIds, normalized.reportId])];
             requirePresentation?.(reportIds.length > 0, reportIds);
           }
           // The verified answer is emitted separately as the assistant message.
