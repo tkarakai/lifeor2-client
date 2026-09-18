@@ -16,12 +16,12 @@ Phase-one text functionality is implemented in `apps/web` and the separate clien
 - Normalized/paged tool results, bounded financial read tools in the companion server patch, task-aware summaries, calibrated usage and a real-inference evaluation suite with manual answer/decision review.
 - Reproducible local setup, hosted/same-machine guidance, source-contract references, backup/restore and operational constraints.
 
-Validation run on 2026-09-17: 100 Bun unit/integration tests, 193 Convex tests,
+Validation run on 2026-09-18: 123 Bun unit/integration tests, 193 Convex tests,
 22 component tests, four Chromium product journeys, and seven development-script
 tests pass. Real local inference passed the MCP round-trip smoke and a synthetic
 history compaction/checkpoint-continuation smoke. Workspace
 TypeScript checks and the production web build pass. Web lint has zero errors
-and ten pre-existing unused-variable warnings in inherited tests. The companion server suite has 128 passing tests. See [agent evaluation](agent-evaluation.md) for the four-model comparison, context tests, manual findings and selected configuration.
+and ten pre-existing unused-variable warnings in inherited tests. The companion server suite has 205 passing tests and 14 Python lifecycle/export tests. Required CI passed at client `9190d7b` and server `f17e59a`. See [agent evaluation](agent-evaluation.md) for the earlier four-model comparison, and [focused life queries](life-query-acceptance.md) for the subsequent real-model and volume acceptance.
 
 `.github/workflows/ci-lifeor.yml` runs product checks on pull requests and pushes
 to `main`, with manual dispatch also available, without production credentials.
@@ -33,7 +33,7 @@ It does not deploy the application. See `CONTRIBUTING.md` for merge requirements
 | --- | --- |
 | AUTH-1 / AUTH-2 | Browser API authentication and Origin checks; private gateway denial; cross-owner history, run and decision checks; retained enrollment tests. |
 | CONN-1 | Token encryption/tampering/owner binding, serialized refresh, lost response and crash handling tested. Actual registered-client browser consent/renewal/revocation still requires the operator's LifeOR2 registration. |
-| DATA-1 | Official MCP v2 transport fixture exercises actual tool execution and result delivery. Connected-client identity and monthly-income reads were verified locally, including their source journals, context meter and traffic inspector. Real create/edit operations and cross-client UI convergence remain release checks. |
+| DATA-1 | Actual configured Qwen inference through the production adapter/MCP passed isolated create/edit postconditions: calendar correction, balanced expense, rent revision, identity correction and preserved note append. Bank/card expense reversals were independently checked on a 308,000-journal fixture. Cross-client UI convergence remains a release check. |
 | DATA-2 | Exact write-key reuse, dataset rejection, malformed arguments and revision-field preservation tested. Real server conflict and request replay behavior must be checked in a disposable dataset. |
 | DATA-3 | Official MCP `input_required` → form elicitation → cancel/accept round trips tested. Persistence rejects changed IDs, other owners, repeats and expired confirmations; browser test covers the confirmation UI. |
 | CHAT-1 / CHAT-2 | Persistence tests cover restart interruption, completed outcomes, grant replacement, deduplication and competing starts. Browser fixtures cover conversation context and draft recovery. |
