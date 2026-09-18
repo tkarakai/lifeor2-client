@@ -473,3 +473,20 @@ test("the bounded direct read surface includes the explicit period comparison", 
   expect(exposed.some(t => t.name === "life_read9")).toBe(true);
   expect(exposed.some(t => t.name === "life_extra")).toBe(false);
 });
+
+test("server-computed clock choices finish verbatim and block a later write", async () => {
+  let calls = 0;
+  let final: string | undefined;
+  const question = "2026-11-01 at 01:30 occurs twice in America/Chicago. First occurrence (UTC−05:00) or second occurrence (UTC−06:00)?";
+  const client = {
+    listTools: async () => ({ tools: ["records.rescheduleEvent", "records.edit"].map(name => ({ name, inputSchema: { type: "object", properties: { datasetId: { type: "string" } }, required: ["datasetId"] } })) }),
+    setRequestHandler: () => {},
+    callTool: async () => { calls++; return { structuredContent: { status: "needs_input", kind: "ambiguous_local_time", question, choices: [{ utcOffsetMinutes: -300 }, { utcOffsetMinutes: -360 }] } }; },
+  } as unknown as Client;
+  const tools = await adapter(client, (async () => null) as Store, "run", "dataset", new AbortController().signal, () => {}, text => { final = text; });
+  const call = tools.find(t => t.name === "call_tool")!;
+  await call.execute("clock", { name: "records.rescheduleEvent", arguments: {} });
+  expect(final).toBe(question);
+  expect((await call.execute("late", { name: "records.edit", arguments: {} })).details).toEqual({ isError: true });
+  expect(calls).toBe(1);
+});

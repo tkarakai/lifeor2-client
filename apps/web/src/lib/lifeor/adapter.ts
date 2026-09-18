@@ -343,6 +343,21 @@ export async function adapter(
           }
           if (
             !result.isError &&
+            ["records.recordEvent", "records.rescheduleEvent"].includes(tool.name) &&
+            normalized && typeof normalized === "object" &&
+            "status" in normalized && normalized.status === "needs_input" &&
+            "kind" in normalized && normalized.kind === "ambiguous_local_time" &&
+            "question" in normalized && typeof normalized.question === "string" &&
+            normalized.question.length <= 600
+          ) {
+            // Civil-time alternatives are computed by the service. Do not ask
+            // the model to invent or rewrite the repeated clock occurrences.
+            awaitingClarification = true;
+            await event("clarification", "Choose the recorded clock occurrence", normalized);
+            finishReport?.(normalized.question);
+          }
+          if (
+            !result.isError &&
             normalized &&
             typeof normalized === "object" &&
             "reportId" in normalized &&
@@ -437,7 +452,7 @@ export async function adapter(
       name: "present_report",
       label: "Present verified report",
       description:
-        "Finish this answer by displaying verified report facts directly. Use after financial, payroll, project, timeline or cash reports. Supply their reportIds and choose a view: by_period for monthly/yearly breakdowns, by_account for categories, summary otherwise. This ends the response without rewriting amounts. For multi-part answers combine up to four report IDs. Saved report details support offset and limit (default 50); totals always cover all matching rows. Do not write your own monetary summary instead.",
+        "Finish this answer by displaying verified report facts directly. Use after financial, payroll, project, timeline, cash, calendar or source-excerpt reports. Supply their reportIds and choose a view: by_period for monthly/yearly breakdowns, by_account for categories, summary otherwise. This ends the response without rewriting amounts. For multi-part answers combine up to four report IDs. Saved report details support offset and limit (default 50); totals always cover all matching rows. Do not write your own monetary summary instead.",
       parameters: Type.Object({
         reportIds: Type.Array(Type.String(), { minItems: 1, maxItems: 4 }),
         offset: Type.Optional(Type.Integer({ minimum: 0 })),
