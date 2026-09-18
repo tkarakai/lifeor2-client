@@ -521,3 +521,50 @@ test("a write requires fresh queried reports, not a reread of an old saved snaps
   expect(presented).toEqual([["report-2"]]);
   expect(answer).toBe("Current evidence");
 });
+
+test("a hypothetical movement asks for its account instead of inventing an allocation", async () => {
+  let projections = 0;
+  const client = {
+    listTools: async () => ({
+      tools: ["life.read", "reports.cashProjection"].map(name => ({
+        name, annotations: { readOnlyHint: true },
+        inputSchema: {
+          type: "object",
+          properties: {
+            datasetId: { type: "string" }, kind: { type: "string" }, id: { type: "string" },
+            additionalMovements: {
+              type: "array", items: {
+                type: "object", properties: {
+                  accountId: { type: "string" }, date: { type: "string" }, amount: { type: "string" },
+                },
+              },
+            },
+          },
+          required: ["datasetId"],
+        },
+      })),
+    }),
+    setRequestHandler:()=>{},
+    callTool:async (call:{name:string})=>{
+      if(call.name==="life.read")return {structuredContent:{record:{_id:"cash",name:"Household bills checking · 1042"}}};
+      projections++;return {structuredContent:{reportId:"scenario"}};
+    },
+  } as unknown as Client;
+  for (const [question,prior,allowed] of [
+    ["What if we spent an extra $10000 from household checking?",[],false],
+    ["What if we spent an extra $10000 from Household bills checking · 1042?",[],true],
+    ["Use it for that hypothetical expense.",["Use Household bills checking · 1042"],true],
+  ] as const) {
+    let answer:string|undefined;
+    const tools=await adapter(client,(async()=>null) as Store,"run","dataset",new AbortController().signal,()=>{},text=>{answer=text;},undefined,question,[...prior]);
+    const call=tools.find(t=>t.name==="call_tool")!;
+    const before=projections;
+    await call.execute("scenario",{name:"reports.cashProjection",arguments:{additionalMovements:[{accountId:"cash",date:"2026-10-10",amount:"-10000"}]}});
+    expect(projections-before).toBe(allowed?1:0);
+    if(!allowed){
+      expect(answer).toBe("Which account should the hypothetical one-off payment or receipt affect?");
+      expect((await call.execute("late",{name:"reports.cashProjection",arguments:{}})).details).toEqual({isError:true});
+      expect(projections).toBe(before);
+    }
+  }
+});

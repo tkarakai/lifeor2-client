@@ -268,6 +268,23 @@ export async function adapter(
           return { content: [{ type: "text", text: JSON.stringify({ code: "STALE_REPORT_AFTER_WRITE", message: "Records changed in this turn. Confirm the write from its returned result, or run a fresh query before presenting updated data. Reading an old saved report does not refresh it.", freshReportIds: [...freshReportIds] }) }], isError: true, details: { isError: true } };
         }
         const reading = tool.annotations?.readOnlyHint === true;
+        if (tool.name === "reports.cashProjection" && Array.isArray(args.additionalMovements)) {
+          for (const movement of args.additionalMovements) {
+            const accountId = String((movement as { accountId?: unknown }).accountId);
+            if (!accountNames.has(accountId) && tools.some(t => t.name === "life.read"))
+              await exposed.find(t => t.name === "call_tool")!.execute(`${_callId}-scenario-account`, { name: "life.read", arguments: { kind: "ledger_account", id: accountId } });
+            const name = accountNames.get(accountId);
+            if (!name || !paymentAccountReferenced(name, accountId, [...priorUserPrompts, question ?? ""])) {
+              const clarification = { status: "needs_input", kind: "scenario_account", question: "Which account should the hypothetical one-off payment or receipt affect?", executed: false };
+              awaitingClarification = true;
+              reportIds = [];
+              requirePresentation?.(false, []);
+              await event("clarification", "Choose the account for this hypothetical scenario", clarification);
+              finishReport?.(clarification.question);
+              return { content: [{ type: "text", text: JSON.stringify(clarification) }], details: {} };
+            }
+          }
+        }
         if (tool.name === "records.recordExpense") {
           const accountId = String(args.paidFromAccountId);
           if (!accountNames.has(accountId)) {
