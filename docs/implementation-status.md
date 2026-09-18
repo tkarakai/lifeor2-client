@@ -11,12 +11,17 @@ Phase-one text functionality is implemented in `apps/web` and the separate clien
 - Pi agent-core embedding, server-configured OpenAI-compatible inference, grant-specific MCP catalog search and schema-validating execution.
 - Persisted write keys, server revision checks, actual MCP v2 form elicitation, single-use user decisions, and bounded failures.
 - Responsive workspace, mobile history drawer, light/dark themes, safe Markdown, activity detail, draft preservation and explicit error/recovery states.
+- Automatic and manual context compaction with persisted working checkpoints, output headroom, chunked summaries, and one inference-only overflow retry; no turn-count cap.
+- Context usage meter and owner-scoped model/compaction/MCP traffic inspection, with redaction, bounded previews, paged history, and batched deletion.
+- Normalized/paged tool results, bounded financial read tools in the companion server patch, task-aware summaries, calibrated usage and a real-inference evaluation suite with manual answer/decision review.
 - Reproducible local setup, hosted/same-machine guidance, source-contract references, backup/restore and operational constraints.
 
-Validation run on 2026-09-16: 76 Bun unit/integration tests, 188 Convex tests,
-21 existing component tests, and three Chromium product journeys pass. Workspace
+Validation run on 2026-09-17: 100 Bun unit/integration tests, 193 Convex tests,
+22 component tests, four Chromium product journeys, and seven development-script
+tests pass. Real local inference passed the MCP round-trip smoke and a synthetic
+history compaction/checkpoint-continuation smoke. Workspace
 TypeScript checks and the production web build pass. Web lint has zero errors
-and ten pre-existing unused-variable warnings in inherited tests.
+and ten pre-existing unused-variable warnings in inherited tests. The companion server suite has 128 passing tests. See [agent evaluation](agent-evaluation.md) for the four-model comparison, context tests, manual findings and selected configuration.
 
 `.github/workflows/ci-lifeor.yml` runs product checks on pull requests and pushes
 to `main`, with manual dispatch also available, without production credentials.
@@ -28,13 +33,13 @@ It does not deploy the application. See `CONTRIBUTING.md` for merge requirements
 | --- | --- |
 | AUTH-1 / AUTH-2 | Browser API authentication and Origin checks; private gateway denial; cross-owner history, run and decision checks; retained enrollment tests. |
 | CONN-1 | Token encryption/tampering/owner binding, serialized refresh, lost response and crash handling tested. Actual registered-client browser consent/renewal/revocation still requires the operator's LifeOR2 registration. |
-| DATA-1 | Official MCP v2 transport fixture exercises actual tool execution and result delivery. Real LifeOR2 record read/create/edit and UI convergence remain release checks. |
+| DATA-1 | Official MCP v2 transport fixture exercises actual tool execution and result delivery. Connected-client identity and monthly-income reads were verified locally, including their source journals, context meter and traffic inspector. Real create/edit operations and cross-client UI convergence remain release checks. |
 | DATA-2 | Exact write-key reuse, dataset rejection, malformed arguments and revision-field preservation tested. Real server conflict and request replay behavior must be checked in a disposable dataset. |
 | DATA-3 | Official MCP `input_required` → form elicitation → cancel/accept round trips tested. Persistence rejects changed IDs, other owners, repeats and expired confirmations; browser test covers the confirmation UI. |
 | CHAT-1 / CHAT-2 | Persistence tests cover restart interruption, completed outcomes, grant replacement, deduplication and competing starts. Browser fixtures cover conversation context and draft recovery. |
-| LLM-1 | Packages are pinned; Pi and MCP v2 load/run under Bun 1.3.9. The configured `gemma-4-12B-it-8bit` endpoint at `http://127.0.0.1:8000/v1` returned **401 Invalid API key**. Full real-model round trip remains pending a valid `LLM_API_KEY`. No performance claim is made. |
-| LLM-2 | Validated endpoint/limit configuration, bounded turn/round/context/output sizes, per-user/global concurrency, cancellation and no cloud fallback. |
-| UX-1 | Chromium desktop and 360px mobile checks, keyboard dialogs, light/dark screenshots and axe checks. Real connected-user journeys and additional browser engines remain release checks. |
+| LLM-1 | Packages are pinned; Pi and MCP v2 load/run under Bun 1.3.9. Four local models were compared with real inference and synthetic MCP fixtures on 2026-09-17. The selected local profile is Qwen3.8-27B-8bit, 32,768 context / 2,048 output tokens, with oMLX thinking disabled. See the evaluation report for results, shared-host latency limitations and remaining model errors; this is not a general intelligence benchmark. |
+| LLM-2 | Validated endpoint/limit configuration, bounded run duration/rounds/output, compaction between generations, overflow recovery, per-user/global concurrency, cancellation and no cloud fallback. |
+| UX-1 | Chromium desktop and 360px mobile checks, keyboard dialogs, light/dark screenshots and axe checks. A connected-user read journey, context meter and traffic inspector were also checked on desktop and mobile. Additional browser engines and write journeys remain release checks. |
 | OPS-1 | Both deployment profiles, private credentials, local bootstrap, retention, restore and upgrade procedures documented. Actual hosted deployment/backup restore is not performed. |
 
 ## Before release
@@ -46,4 +51,4 @@ It does not deploy the application. See `CONTRIBUTING.md` for merge requirements
 5. Run browser checks against the real connected system, including multiple devices, expired client sessions, Safari and Firefox.
 6. Validate the production HTTPS/tunnel setup and a backup restore. Configure the documented backup expiry in the actual provider. Enable inherited deployment workflows only when their infrastructure is configured.
 
-Current scope boundaries: one app instance; up to 200 conversations and 20 turns per conversation; dataset-scoped operations only; new grants require new conversations. The new workspace copy is English; existing localized authentication/account screens are retained. Voice, multi-instance coordination and unscoped dataset creation are not shipped here.
+Current scope boundaries: one app instance; up to 200 conversations, with no turn-count cap and automatic context compaction; dataset-scoped operations only; new grants require new conversations. The new workspace copy is English; existing localized authentication/account screens are retained. Voice, multi-instance coordination and unscoped dataset creation are not shipped here.

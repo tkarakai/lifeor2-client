@@ -5,12 +5,14 @@ import {
 import { config, AppError } from "./config";
 import { setTimeout as delay } from "node:timers/promises";
 import { accessToken } from "./oauth";
-import type { Dataset, Store } from "./types";
+import { randomUUID } from "node:crypto";
+import type { Dataset, Store, Observe } from "./types";
 export const PROTOCOL_VERSION = "2026-07-28";
 export async function connectMcp(
   store: Store,
   ownerId: string,
   connection: string,
+  observe?: Observe,
 ) {
   const client = new Client(
     { name: "lifeor2-client", version: "0.1.0" },
@@ -24,7 +26,16 @@ export async function connectMcp(
       authProvider: { token: () => accessToken(store, ownerId, connection) },
       fetch: async (input, init) => {
         for (let attempt = 0; attempt < 2; attempt++) {
-          const response = await fetch(input, {
+          const exchange = randomUUID();
+          if (observe && typeof init?.body === "string")
+            await observe({
+              exchange,
+              channel: "mcp",
+              direction: "request",
+              label: "MCP request",
+              body: JSON.parse(init.body),
+            });
+          let response = await fetch(input, {
             ...init,
             redirect: "error",
             signal: AbortSignal.any([
@@ -32,6 +43,70 @@ export async function connectMcp(
               AbortSignal.timeout(30000),
             ]),
           });
+          if (observe) {
+            const status = response.status;
+            await observe({
+              exchange,
+              channel: "mcp",
+              direction: "response",
+              label: `MCP · HTTP ${status}`,
+              body: { status },
+            });
+            if (response.body) {
+              let captured = "";
+              let truncated = false;
+              const decoder = new globalThis.TextDecoder();
+              const capture = (text: string) => {
+                if (captured.length + text.length > 48000) truncated = true;
+                captured = (captured + text).slice(0, 48000);
+              };
+              response = new Response(
+                response.body.pipeThrough(
+                  new globalThis.TransformStream<Uint8Array, Uint8Array>({
+                    transform(chunk, controller) {
+                      capture(decoder.decode(chunk, { stream: true }));
+                      controller.enqueue(chunk);
+                    },
+                    async flush() {
+                      capture(decoder.decode());
+                      let body: unknown;
+                      try {
+                        body = JSON.parse(captured);
+                      } catch {
+                        body = captured.includes("data:")
+                          ? captured
+                              .split("\n")
+                              .filter((line) => line.startsWith("data:"))
+                              .map((line) => {
+                                try {
+                                  return JSON.parse(line.slice(5));
+                                } catch {
+                                  return {
+                                    preview: line.slice(5),
+                                    incomplete: true,
+                                  };
+                                }
+                              })
+                          : { preview: captured };
+                      }
+                      await observe({
+                        exchange,
+                        channel: "mcp",
+                        direction: "response",
+                        label: `MCP · HTTP ${status}`,
+                        body: {
+                          status,
+                          body,
+                          ...(truncated ? { truncated: true } : {}),
+                        },
+                      });
+                    },
+                  }),
+                ),
+                { status, headers: response.headers },
+              );
+            }
+          }
           if (response.status === 401) {
             await store("connection.invalidate", { identity: connection });
             throw new AppError("RECONNECT_REQUIRED", 401);

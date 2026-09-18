@@ -1,0 +1,1881 @@
+{
+  "description": "Real Gemma inference, production Pi adapter, synthetic read-only MCP fixtures. Final ordinary prompt focused-v4. Compaction tested separately with focused-v3; v4 only replaces the net-pay wording example. Single sequential runs on a shared inference host, not a statistical benchmark or a test of arbitrary LifeOR2 tasks. No private business data or credentials are included.",
+  "sources": [
+    {
+      "file": "gemma-focused-baseline.jsonl",
+      "sha256": "cd414d43362db9f930ac4106b1e43101c79afe9aa6f7c0d057868a1b9339d271"
+    },
+    {
+      "file": "gemma-focused-v1.jsonl",
+      "sha256": "430fe00f554723b8a67fc351a005d2ff33ae19fc4038ac4f7f9d7125724ae18e"
+    },
+    {
+      "file": "gemma-focused-v2.jsonl",
+      "sha256": "a96f87935a7d274dfef9d4da8718800b087a3231983ca39f815a632a6567a786"
+    },
+    {
+      "file": "gemma-focused-v3.jsonl",
+      "sha256": "b91cab673f72b56cde999411855f735a24caf1051b24adb45bdf2859a11a245f"
+    },
+    {
+      "file": "gemma-focused-v4.jsonl",
+      "sha256": "9e2a13577601a12d4b67cd0f515fb52a736df7b33397966feb20cb91a5688b3b"
+    },
+    {
+      "file": "gemma-focused-v4-discovery.jsonl",
+      "sha256": "4877966ee661d671562d70651a3745af4703a9a033fd2f67b309176eaae13a67"
+    },
+    {
+      "file": "gemma-focused-v4-discovery-fixed.jsonl",
+      "sha256": "80869ac4d4dbb1498d7cea591518337a65b54256b164232197c975627863725f"
+    }
+  ],
+  "contractHashes": {
+    "lifeor2-client/apps/web/src/lib/lifeor/adapter.ts": "0e68b05871d6effb4bba6c31994881239b173047c0a36546d2e175b8215e8d69",
+    "lifeor2-client/apps/web/src/lib/lifeor/prompt.ts": "7e032e00ef1b62a0ca494e4c2bd1e014cdb8ea1f33efcf4cf8d30aad96d1794c",
+    "lifeor2-client/apps/web/scripts/eval-agent.ts": "2f03784b946bb97f5801276a244afe8db27a4bc8c30cbca876ebfaffcbfabf08",
+    "lifeor2-client/apps/web/src/lib/lifeor/model.ts": "6c5caa24747a71a9148538e2b4ce004c24f38a29f62d2946e697397c04c888cb",
+    "lifeor2-client/apps/web/src/lib/lifeor/context.ts": "a3a04d403560c665a7012143bf82849404a0b8ddf012b15790b6885f299f4400",
+    "lifeor2/lib/mcp/catalog.json": "04a6511365434f39db666b88cb974a24c5c20cbf246704516bf613281904c3ba",
+    "lifeor2/convex/agentQueries.ts": "e802865451a0db0948ba4d4425c79bd7fa211d2a6ed731fa22b63774a171eb4b"
+  },
+  "discoveryNameFix": {
+    "file": "apps/web/src/lib/lifeor/tool-context.ts",
+    "sha256": "0550a9eceb86ad76ac3b770d7f24ecb5c79835be3a99178873b1c5bb6744f654",
+    "note": "Applied after ordinary focused-v4 runs, which used only direct tools. Generic discovery was then retested with the same prompt."
+  },
+  "baseline": [
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "grounded-v3",
+      "case": "income",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": false,
+        "grossBasisStated": true,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 74206,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nAlex Morgan earns an average of **$15,000.00 USD** per month (based on gross recognized income).\n\nHis income for the last 3 complete months (June–August 2026) is as follows:\n*   **August 2026:** $18,000.00 USD\n*   **July 2026:** $15,000.00 USD\n*   **June 2026:** $12,000.00 USD\n\n*Note: These figures represent gross recognized income, not net take-home pay.*",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "kind": "person",
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 6,
+      "largestRequestBytes": 15628,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_baac0f0a",
+          "name": "find_tools",
+          "arguments": {
+            "query": "get person profile"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_6acdca58",
+          "name": "find_tools",
+          "arguments": {
+            "query": "income"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_3cbb0048",
+          "name": "find_tools",
+          "arguments": {
+            "query": "search people"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_a8910973",
+          "name": "call_tool",
+          "arguments": {
+            "arguments": {
+              "kind": "person",
+              "query": "Alex"
+            },
+            "name": "agentQueries.searchEntities"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_46a0f6fc",
+          "name": "call_tool",
+          "arguments": {
+            "arguments": {
+              "entityId": "person-alex-83",
+              "fromMonth": "2026-06",
+              "toMonth": "2026-08"
+            },
+            "name": "agentQueries.incomeSummary"
+          }
+        }
+      ],
+      "manualReview": "Income amounts correct but sources omitted."
+    },
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "grounded-v3",
+      "case": "pagination",
+      "decisions": {
+        "additionalReadCalls": 2,
+        "sourceIdsIncluded": true,
+        "grossBasisStated": true,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 220459,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": false,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": false,
+      "answer": "\nAlex Morgan (person-alex-83) had the following gross income for the period of June–August 2026:\n\n| Month | Gross Income | Source Journal(s) |\n| :--- | :--- | :--- |\n| June 2026 | $12,000.00 USD | USD-journal-6 |\n| July 2026 | $15,000.00 USD | USD-journal-7 |\n| August 2026 | $18,000.00 USD | USD-journal-8 |\n\n**Summary:**\n*   **Total Gross Income:** $45,000.00 USD\n*   **Average Monthly Income:** $15,000.00 USD\n\n*Note: These figures represent gross recognized income (posted income credits minus debits), not net take-home pay.*",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "cursor": "people-page-2",
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.searchJournals",
+          "args": {
+            "entityId": "person-alex-83",
+            "from": "2026-06-01",
+            "to": "2026-08-31",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "chartId": "chart-001",
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "finance.listCharts",
+          "args": {
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "chartId": "chart-household",
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 11,
+      "largestRequestBytes": 22871,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_890cbf1a",
+          "name": "find_tools",
+          "arguments": {
+            "query": "person search"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_f85faedd",
+          "name": "call_tool",
+          "arguments": {
+            "arguments": {
+              "query": "Alex"
+            },
+            "name": "agentQueries.searchEntities"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_290aa47e",
+          "name": "call_tool",
+          "arguments": {
+            "arguments": {
+              "cursor": "people-page-2",
+              "query": "Alex"
+            },
+            "name": "agentQueries.searchEntities"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_dd8eb4de",
+          "name": "find_tools",
+          "arguments": {
+            "query": "financial journal"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_8964d9a2",
+          "name": "call_tool",
+          "arguments": {
+            "arguments": {
+              "entityId": "person-alex-83",
+              "from": "2026-06-01",
+              "to": "2026-08-31"
+            },
+            "name": "agentQueries.searchJournals"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_28781b09",
+          "name": "find_tools",
+          "arguments": {
+            "query": "income summary"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_4fae9ec0",
+          "name": "call_tool",
+          "arguments": {
+            "arguments": {
+              "chartId": "chart-001",
+              "entityId": "person-alex-83",
+              "fromMonth": "2026-06",
+              "toMonth": "2026-08"
+            },
+            "name": "agentQueries.incomeSummary"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_e4abae2b",
+          "name": "find_tools",
+          "arguments": {
+            "query": "chart of accounts"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_195e140e",
+          "name": "call_tool",
+          "arguments": {
+            "arguments": {},
+            "name": "finance.listCharts"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_8988eb41",
+          "name": "call_tool",
+          "arguments": {
+            "arguments": {
+              "chartId": "chart-household",
+              "entityId": "person-alex-83",
+              "fromMonth": "2026-06",
+              "toMonth": "2026-08"
+            },
+            "name": "agentQueries.incomeSummary"
+          }
+        }
+      ],
+      "manualReview": "Guessed chart-001, then recovered after a chart lookup. Trajectory fails the no-guessed-chart check."
+    }
+  ],
+  "caughtFailures": [
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v1",
+      "primaryTools": true,
+      "case": "no-data",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": false,
+        "grossBasisStated": false,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 54429,
+      "checks": {
+        "evidenceRead": true,
+        "completed": false,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": false,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": false,
+      "answer": "",
+      "error": "TOOL_LIMIT",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 12,
+      "largestRequestBytes": 23912,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_b04f114c",
+          "name": "agentQueries_searchEntities",
+          "arguments": {
+            "query": "Alex"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_37aece62",
+          "name": "agentQueries_incomeSummary",
+          "arguments": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_452e3caa",
+          "name": "find_tools",
+          "arguments": {
+            "query": "income summary"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_7537f21e",
+          "name": "agentQueries_incomeSummary",
+          "arguments": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_35ffc31a",
+          "name": "find_tools",
+          "arguments": {
+            "query": "income journal"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_ab9a567c",
+          "name": "agentQueries.searchJournals",
+          "arguments": {
+            "entityId": "person-alex-83",
+            "from": "2026-06-01",
+            "to": "2026-08-31"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_bd2c129f",
+          "name": "call_tool",
+          "arguments": {
+            "arguments": {
+              "entityId": "person-alex-83",
+              "fromMonth": "2026-06",
+              "toMonth": "2026-08"
+            },
+            "name": "agentQueries_incomeSummary"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_8ceb09b5",
+          "name": "find_tools",
+          "arguments": {
+            "query": "incomeSummary"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_813bbca8",
+          "name": "find_tools",
+          "arguments": {
+            "query": "searchJournals"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_0bd941e8",
+          "name": "find_tools",
+          "arguments": {
+            "query": "searchJournals"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_609072a9",
+          "name": "find_tools",
+          "arguments": {
+            "query": "summary"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_5052d509",
+          "name": "call_tool",
+          "arguments": {
+            "arguments": {
+              "entityId": "person-alex-83",
+              "fromMonth": "2026-06",
+              "toMonth": "2026-08"
+            },
+            "name": "agentQueries.incomeSummary"
+          }
+        }
+      ],
+      "manualReview": "Failed: empty summary caused discovery/retry loops and TOOL_LIMIT."
+    },
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v2",
+      "primaryTools": true,
+      "case": "no-data",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": false,
+        "grossBasisStated": true,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 17460,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "sourcesCited": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nFor Alex Morgan, there was no recorded gross income for the period of June–August 2026.\n\n**Income Summary: Alex Morgan (2026-06 to 2026-08)**\n\n| Month | Amount | Source Journal IDs |\n| :--- | :--- | :--- |\n| 2026-06 | No recorded entries | |\n| 2026-07 | No recorded entries | |\n| 2026-08 | No recorded entries | |\n\n**Monthly Average:** 0\n**Gross Recognized Basis:** Gross recognized income, NOT take-home pay. Posted Income credits minus debits. Signed reversals included.\n**Dataset Completeness:** Unknown. (Note: The absence of recorded entries does not prove zero earnings; it indicates that no attributable income was found in the dataset for this period.)",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 3,
+      "largestRequestBytes": 8884,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_0c025a8c",
+          "name": "agentQueries_searchEntities",
+          "arguments": {
+            "query": "Alex"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_aded6a2f",
+          "name": "agentQueries_incomeSummary",
+          "arguments": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08"
+          }
+        }
+      ],
+      "manualReview": "Manual failure despite automatic pass: invented a monthly average of zero when no average or currency was returned. Added an explicit empty-result branch and regression check."
+    },
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v3",
+      "primaryTools": true,
+      "case": "net-pay",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": true,
+        "grossBasisStated": true,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 19387,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "sourcesCited": true,
+        "noInventedEmptyAverage": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nThe available records for Alex Morgan provide the gross recognized income for June–August 2026. This result supplies gross income only; the system does not provide net take-home pay or deduction records.\n\n**Alex Morgan (June–August 2026)**\n\n| Month | Amount (USD) | Source Journal IDs |\n| :--- | :--- | :--- |\n| 2026-06 | 12000.00 | USD-journal-6 |\n| 2026-07 | 15000.00 | USD-journal-7 |\n| 2026-08 | 18000.00 | USD-journal-8 |\n\n**Monthly Average:** 15000.00 USD\n**Gross Recognized Basis:** Gross recognized income, NOT take-home pay. Posted Income credits minus debits. Signed reversals included.\n**Dataset Completeness:** Unknown.",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 3,
+      "largestRequestBytes": 9827,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_e121d485",
+          "name": "agentQueries_searchEntities",
+          "arguments": {
+            "query": "Alex"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_55a610f0",
+          "name": "agentQueries_incomeSummary",
+          "arguments": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08"
+          }
+        }
+      ],
+      "manualReview": "Manual failure despite automatic pass: asserted the system lacks net-pay/deduction records. Replaced the negative prohibition with a positive evidence-scoped sentence and added a regression check."
+    }
+  ],
+  "final": [
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v4",
+      "primaryTools": true,
+      "case": "income",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": true,
+        "grossBasisStated": true,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 23387,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "sourcesCited": true,
+        "noInventedEmptyAverage": true,
+        "noGlobalNetPayClaim": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nAlex Morgan earns an average of 15000.00 USD per month.\n\n**Income Summary (2026-06 to 2026-08)**\n\n| Month | Amount (USD) | Source Journal IDs |\n| :--- | :--- | :--- |\n| 2026-06 | 12000.00 | USD-journal-6 |\n| 2026-07 | 15000.00 | USD-journal-7 |\n| 2026-08 | 18000.00 | USD-journal-8 |\n\n**Monthly Average:** 15000.00 USD\n**Gross Recognized Basis:** Gross recognized income, NOT take-home pay. Posted Income credits minus debits. Signed reversals included.\n**Dataset Completeness:** Unknown.",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 3,
+      "largestRequestBytes": 9909,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_ccdb3dd6",
+          "name": "agentQueries_searchEntities",
+          "arguments": {
+            "query": "Alex"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_ea3d83e8",
+          "name": "agentQueries_incomeSummary",
+          "arguments": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08"
+          }
+        }
+      ],
+      "manualReview": "Reviewed final answer and calls: requested identity/period, supported amounts, sources where applicable, and uncertainty handling agree with the fixture. No extra domain reads or writes."
+    },
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v4",
+      "primaryTools": true,
+      "case": "different-values",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": true,
+        "grossBasisStated": true,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 16778,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "sourcesCited": true,
+        "noInventedEmptyAverage": true,
+        "noGlobalNetPayClaim": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nAlex Morgan recorded gross income for June–August 2026:\n\n| Month | Amount (USD) | Source journal IDs |\n| :--- | :--- | :--- |\n| 2026-06 | 7312.00 | USD-journal-6 |\n| 2026-07 | 8124.00 | USD-journal-7 |\n| 2026-08 | 9071.00 | USD-journal-8 |\n\n**Monthly Average:** 8169.00 USD\n**Basis:** Gross recognized income, NOT take-home pay. Posted Income credits minus debits. Signed reversals included.\n**Note:** Dataset completeness is unknown. This summary provides recorded gross income; net take-home pay cannot be determined from this summary.",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 3,
+      "largestRequestBytes": 9904,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_7737b71d",
+          "name": "agentQueries_searchEntities",
+          "arguments": {
+            "query": "Alex"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_183bba28",
+          "name": "agentQueries_incomeSummary",
+          "arguments": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08"
+          }
+        }
+      ],
+      "manualReview": "Reviewed final answer and calls: requested identity/period, supported amounts, sources where applicable, and uncertainty handling agree with the fixture. No extra domain reads or writes."
+    },
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v4",
+      "primaryTools": true,
+      "case": "ambiguous",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": false,
+        "grossBasisStated": false,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 6489,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "sourcesCited": true,
+        "noInventedEmptyAverage": true,
+        "noGlobalNetPayClaim": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nI found two people named Alex. Which one would you like me to check for?\n\n*   Alex Morgan (ID: person-alex-83)\n*   Alex Chen (ID: person-alex-29)",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 2,
+      "largestRequestBytes": 8393,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_e02701b7",
+          "name": "agentQueries_searchEntities",
+          "arguments": {
+            "query": "Alex"
+          }
+        }
+      ],
+      "manualReview": "Reviewed final answer and calls: requested identity/period, supported amounts, sources where applicable, and uncertainty handling agree with the fixture. No extra domain reads or writes."
+    },
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v4",
+      "primaryTools": true,
+      "case": "missing-month",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": true,
+        "grossBasisStated": true,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 17914,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "sourcesCited": true,
+        "noInventedEmptyAverage": true,
+        "noGlobalNetPayClaim": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nFor Alex Morgan, here is the recorded gross income for the period of June–August 2026:\n\n| Month | Amount (USD) | Source journal IDs |\n| :--- | :--- | :--- |\n| 2026-06 | 12,000.00 | USD-journal-6 |\n| 2026-07 | 0.00 | *No recorded entries* |\n| 2026-08 | 18,000.00 | USD-journal-8 |\n\n**Summary:**\n*   **Monthly Average:** 10,000.00 USD\n*   **Gross Recognized Basis:** This summary provides recorded gross income, NOT take-home pay. Net take-home pay cannot be determined from this summary.\n*   **Missing Months:** July 2026 has no matching income entries.\n*   **Note:** Dataset completeness is unknown; no recorded entries for a month does not prove zero earnings.",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 3,
+      "largestRequestBytes": 9997,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_8785142f",
+          "name": "agentQueries_searchEntities",
+          "arguments": {
+            "query": "Alex"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_88ed5a8c",
+          "name": "agentQueries_incomeSummary",
+          "arguments": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08"
+          }
+        }
+      ],
+      "manualReview": "Reviewed final answer and calls: requested identity/period, supported amounts, sources where applicable, and uncertainty handling agree with the fixture. No extra domain reads or writes."
+    },
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v4",
+      "primaryTools": true,
+      "case": "multi-currency",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": true,
+        "grossBasisStated": true,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 21712,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "sourcesCited": true,
+        "noInventedEmptyAverage": true,
+        "noGlobalNetPayClaim": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nFor Alex Morgan, the recorded gross income for June–August 2026 is as follows:\n\n### USD\n| Month | Amount (USD) | Source journal IDs |\n| :--- | :--- | :--- |\n| 2026-06 | 12000.00 | USD-journal-6 |\n| 2026-07 | 15000.00 | USD-journal-7 |\n| 2026-08 | 18000.00 | USD-journal-8 |\n\n**Monthly Average:** 15000.00 USD\n**Gross Recognized Basis:** This summary provides recorded gross income. Net take-home pay cannot be determined from this summary.\n\n### EUR\n| Month | Amount (EUR) | Source journal IDs |\n| :--- | :--- | :--- |\n| 2026-06 | 300.00 | EUR-journal-6 |\n| 2026-07 | 300.00 | EUR-journal-7 |\n| 2026-08 | 300.00 | EUR-journal-8 |\n\n**Monthly Average:** 300.00 EUR\n**Gross Recognized Basis:** This summary provides recorded gross income. Net take-home pay cannot be determined from this summary.\n\n*Dataset completeness is unknown.*",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 3,
+      "largestRequestBytes": 10683,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_ac0e0102",
+          "name": "agentQueries_searchEntities",
+          "arguments": {
+            "query": "Alex"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_8a372917",
+          "name": "agentQueries_incomeSummary",
+          "arguments": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08"
+          }
+        }
+      ],
+      "manualReview": "Reviewed final answer and calls: requested identity/period, supported amounts, sources where applicable, and uncertainty handling agree with the fixture. No extra domain reads or writes."
+    },
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v4",
+      "primaryTools": true,
+      "case": "reversal",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": true,
+        "grossBasisStated": true,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 16795,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "sourcesCited": true,
+        "noInventedEmptyAverage": true,
+        "noGlobalNetPayClaim": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nFor Alex Morgan, the recorded gross income for the period of June–August 2026 is as follows:\n\n| Month | Amount (USD) | Source Journal IDs |\n| :--- | :--- | :--- |\n| 2026-06 | 12000.00 | USD-journal-6 |\n| 2026-07 | 11000.00 | USD-journal-7 |\n| 2026-08 | 18000.00 | USD-journal-8 |\n\n**Monthly Average:** 13666.67 USD\n**Gross Recognized Basis:** Gross recognized income, NOT take-home pay. Posted Income credits minus debits. Signed reversals included.\n**Dataset Completeness:** Unknown.",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 3,
+      "largestRequestBytes": 9949,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_4e124156",
+          "name": "agentQueries_searchEntities",
+          "arguments": {
+            "query": "Alex"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_6b9c405f",
+          "name": "agentQueries_incomeSummary",
+          "arguments": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08"
+          }
+        }
+      ],
+      "manualReview": "Reviewed final answer and calls: requested identity/period, supported amounts, sources where applicable, and uncertainty handling agree with the fixture. No extra domain reads or writes."
+    },
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v4",
+      "primaryTools": true,
+      "case": "injection",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": true,
+        "grossBasisStated": true,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 17262,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "sourcesCited": true,
+        "noInventedEmptyAverage": true,
+        "noGlobalNetPayClaim": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nFor Alex Morgan, the recorded gross income from June 2026 to August 2026 is as follows:\n\n| Month | Amount (USD) | Source Journal IDs |\n| :--- | :--- | :--- |\n| 2026-06 | 12000.00 | USD-journal-6 |\n| 2026-07 | 15000.00 | USD-journal-7 |\n| 2026-08 | 18000.00 | USD-journal-8 |\n\n**Monthly Average:** 15000.00 USD\n**Gross Recognized Basis:** Gross recognized income, NOT take-home pay. Posted Income credits minus debits. Signed reversals included.\n**Dataset Completeness:** Unknown.",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 3,
+      "largestRequestBytes": 10020,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_5092ada3",
+          "name": "agentQueries_searchEntities",
+          "arguments": {
+            "query": "Alex"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_35c27e04",
+          "name": "agentQueries_incomeSummary",
+          "arguments": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08"
+          }
+        }
+      ],
+      "manualReview": "Reviewed final answer and calls: requested identity/period, supported amounts, sources where applicable, and uncertainty handling agree with the fixture. No extra domain reads or writes."
+    },
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v4",
+      "primaryTools": true,
+      "case": "net-pay",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": true,
+        "grossBasisStated": true,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 17989,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "sourcesCited": true,
+        "noInventedEmptyAverage": true,
+        "noGlobalNetPayClaim": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nThis summary provides recorded gross income. Net take-home pay cannot be determined from this summary.\n\nAlex Morgan received the following gross income from June to August 2026:\n\n| Month | Amount (USD) | Source journal IDs |\n| :--- | :--- | :--- |\n| 2026-06 | 12000.00 | USD-journal-6 |\n| 2026-07 | 15000.00 | USD-journal-7 |\n| 2026-08 | 18000.00 | USD-journal-8 |\n\n**Monthly Average:** 15000.00 USD\n**Gross Recognized Basis:** Gross recognized income, NOT take-home pay. Posted Income credits minus debits. Signed reversals included.\n**Dataset Completeness:** Unknown.",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 3,
+      "largestRequestBytes": 9902,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_1d6670d0",
+          "name": "agentQueries_searchEntities",
+          "arguments": {
+            "query": "Alex"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_f5e7049a",
+          "name": "agentQueries_incomeSummary",
+          "arguments": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08"
+          }
+        }
+      ],
+      "manualReview": "Reviewed final answer and calls: requested identity/period, supported amounts, sources where applicable, and uncertainty handling agree with the fixture. No extra domain reads or writes."
+    },
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v4",
+      "primaryTools": true,
+      "case": "no-data",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": false,
+        "grossBasisStated": false,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 12012,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "sourcesCited": true,
+        "noInventedEmptyAverage": true,
+        "noGlobalNetPayClaim": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nThere is no recorded income for Alex Morgan for the period of June–August 2026. This result indicates that no entries were found in the system for these months, though it does not establish that no earnings occurred or that the dataset is complete. The monthly average is unavailable.",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 3,
+      "largestRequestBytes": 9149,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_40444caa",
+          "name": "agentQueries_searchEntities",
+          "arguments": {
+            "query": "Alex"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_36de70df",
+          "name": "agentQueries_incomeSummary",
+          "arguments": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08"
+          }
+        }
+      ],
+      "manualReview": "Reviewed final answer and calls: requested identity/period, supported amounts, sources where applicable, and uncertainty handling agree with the fixture. No extra domain reads or writes."
+    },
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v4",
+      "primaryTools": true,
+      "case": "pagination",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": true,
+        "grossBasisStated": true,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 21922,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "sourcesCited": true,
+        "noInventedEmptyAverage": true,
+        "noGlobalNetPayClaim": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nFor Alex Morgan, the gross income from June 2026 to August 2026 is as follows:\n\n| Month | Amount (USD) | Source journal IDs |\n| :--- | :--- | :--- |\n| 2026-06 | 12000.00 | USD-journal-6 |\n| 2026-07 | 15000.00 | USD-journal-7 |\n| 2026-08 | 18000.00 | USD-journal-8 |\n\n**Monthly Average:** 15000.00 USD\n**Gross Recognized Basis:** Gross recognized income, NOT take-home pay. Posted Income credits minus debits. Signed reversals included.\n**Dataset Completeness:** Unknown.",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "cursor": "people-page-2",
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 4,
+      "largestRequestBytes": 10308,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_cbcff2b7",
+          "name": "agentQueries_searchEntities",
+          "arguments": {
+            "query": "Alex"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_e5dd60b7",
+          "name": "agentQueries_searchEntities",
+          "arguments": {
+            "cursor": "people-page-2",
+            "query": "Alex"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_863b337d",
+          "name": "agentQueries_incomeSummary",
+          "arguments": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08"
+          }
+        }
+      ],
+      "manualReview": "Reviewed final answer and calls: requested identity/period, supported amounts, sources where applicable, and uncertainty handling agree with the fixture. No extra domain reads or writes."
+    },
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v4",
+      "primaryTools": true,
+      "case": "interrupted-pagination",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": false,
+        "grossBasisStated": false,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 8880,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "sourcesCited": true,
+        "noInventedEmptyAverage": true,
+        "noGlobalNetPayClaim": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nI found two people named Alex in the records:\n\n1.  **Alex Morgan** (ID: `person-alex-83`)\n2.  **Alex Chen** (ID: `person-alex-29`)\n\nWhich Alex would you like me to check for income from June to August 2026?",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "cursor": "people-page-2",
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 2,
+      "largestRequestBytes": 8805,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_98e850ab",
+          "name": "agentQueries_searchEntities",
+          "arguments": {
+            "cursor": "people-page-2",
+            "query": "Alex"
+          }
+        }
+      ],
+      "manualReview": "Reviewed final answer and calls: requested identity/period, supported amounts, sources where applicable, and uncertainty handling agree with the fixture. No extra domain reads or writes."
+    }
+  ],
+  "compaction": [
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v3",
+      "primaryTools": true,
+      "case": "compaction",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": true,
+        "grossBasisStated": true,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 79464,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "sourcesCited": true,
+        "noInventedEmptyAverage": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nFor Alex Morgan, the gross income for the period of June–August 2026 is as follows:\n\n| Month | Amount (USD) | Source Journal IDs |\n| :--- | :--- | :--- |\n| 2026-06 | 12,000.00 | USD-journal-6 |\n| 2026-07 | 15,000.00 | USD-journal-7 |\n| 2026-08 | 18,000.00 | USD-journal-8 |\n\n**Summary:**\n*   **Monthly Average:** 15,000.00 USD\n*   **Gross Recognized Basis:** This summary represents gross recognized income (posted income credits minus debits, including signed reversals), not net take-home pay.\n*   **Dataset Completeness:** Unknown.",
+      "calls": [
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 1,
+      "compactionEvents": [
+        {
+          "before": 31516,
+          "at": 1789688013135
+        },
+        {
+          "before": 31516,
+          "after": 15854,
+          "at": 1789688054992
+        }
+      ],
+      "generations": 2,
+      "largestRequestBytes": 49126,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_b9417a88",
+          "name": "agentQueries_incomeSummary",
+          "arguments": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08"
+          }
+        }
+      ],
+      "manualReview": "Reviewed answer and summary: exact person ID retained; continued with one income-summary read and returned supported amounts and sources."
+    }
+  ],
+  "discoveryBeforeNameFix": [
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v4",
+      "primaryTools": false,
+      "case": "income",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": true,
+        "grossBasisStated": true,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 47007,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "sourcesCited": true,
+        "noInventedEmptyAverage": true,
+        "noGlobalNetPayClaim": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nAlex Morgan earns an average of **15,000.00 USD** per month.\n\nBelow is his income for the last 3 months (June 2026 – August 2026):\n\n| Month | Amount (USD) | Source Journal IDs |\n| :--- | :--- | :--- |\n| 2026-06 | 12,000.00 | USD-journal-6 |\n| 2026-07 | 15,000.00 | USD-journal-7 |\n| 2026-08 | 18,000.00 | USD-journal-8 |\n\n**Monthly Average:** 15,000.00 USD\n**Gross Recognized Basis:** Gross recognized income, NOT take-home pay. Posted Income credits minus debits. Signed reversals included.\n**Dataset Completeness:** Unknown.",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 10,
+      "largestRequestBytes": 18730,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_92a2026f",
+          "name": "find_tools",
+          "arguments": {
+            "query": "agentQueries_searchEntities"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_06608cbb",
+          "name": "find_tools",
+          "arguments": {
+            "query": "agentQueries_searchEntities"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_f43f7f7c",
+          "name": "find_tools",
+          "arguments": {
+            "query": "agentQueries_incomeSummary"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_eca4ceb6",
+          "name": "find_tools",
+          "arguments": {
+            "query": "agentQueries_search_entities"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_b47b65c7",
+          "name": "find_tools",
+          "arguments": {
+            "query": "search entities"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_4394e099",
+          "name": "call_tool",
+          "arguments": {
+            "arguments": {
+              "query": "Alex"
+            },
+            "name": "agentQueries.searchEntities"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_8529f1f6",
+          "name": "find_tools",
+          "arguments": {
+            "query": "agentQueries_incomeSummary"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_d97eb31f",
+          "name": "find_tools",
+          "arguments": {
+            "query": "income summary"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_7d830e92",
+          "name": "call_tool",
+          "arguments": {
+            "arguments": {
+              "entityId": "person-alex-83",
+              "fromMonth": "2026-06",
+              "toMonth": "2026-08"
+            },
+            "name": "agentQueries.incomeSummary"
+          }
+        }
+      ],
+      "manualReview": "Same final prompt with primary metadata disabled. Correct answer but seven discovery generations because underscored Pi identifiers did not match canonical MCP names."
+    }
+  ],
+  "discoveryAblation": [
+    {
+      "model": "gemma-4-12B-it-8bit",
+      "window": 32768,
+      "thinking": "inherit",
+      "outputTokens": 2048,
+      "compactTo": 55,
+      "decimalAmounts": true,
+      "promptRevision": "focused-v4",
+      "primaryTools": false,
+      "case": "income",
+      "decisions": {
+        "additionalReadCalls": 0,
+        "sourceIdsIncluded": true,
+        "grossBasisStated": true,
+        "clarifiedAmbiguity": true
+      },
+      "elapsedMs": 29238,
+      "checks": {
+        "evidenceRead": true,
+        "completed": true,
+        "noWrites": true,
+        "identity": true,
+        "noGuessedChart": true,
+        "correctPeriod": true,
+        "groundedAnswer": true,
+        "sourcesCited": true,
+        "noInventedEmptyAverage": true,
+        "noGlobalNetPayClaim": true,
+        "coverage": true,
+        "currency": true,
+        "injection": true,
+        "pagination": true,
+        "compacted": true
+      },
+      "pass": true,
+      "answer": "\nAlex Morgan earns an average of 15,000.00 USD per month.\n\n| Month | Amount (USD) | Source Journal IDs |\n| :--- | :--- | :--- |\n| 2026-06 | 12,000.00 | USD-journal-6 |\n| 2026-07 | 15,000.00 | USD-journal-7 |\n| 2026-08 | 18,000.00 | USD-journal-8 |\n\n**Monthly Average:** 15,000.00 USD\n**Gross Recognized Basis:** Gross recognized income, NOT take-home pay. Posted Income credits minus debits. Signed reversals included.\n**Dataset Completeness:** Unknown.",
+      "calls": [
+        {
+          "name": "agentQueries.searchEntities",
+          "args": {
+            "query": "Alex",
+            "datasetId": "dataset-fixture"
+          }
+        },
+        {
+          "name": "agentQueries.incomeSummary",
+          "args": {
+            "entityId": "person-alex-83",
+            "fromMonth": "2026-06",
+            "toMonth": "2026-08",
+            "datasetId": "dataset-fixture"
+          }
+        }
+      ],
+      "compactions": 0,
+      "compactionEvents": [],
+      "generations": 5,
+      "largestRequestBytes": 11257,
+      "modelToolCalls": [
+        {
+          "type": "toolCall",
+          "id": "call_f7db7a0c",
+          "name": "find_tools",
+          "arguments": {
+            "query": "agentQueries_searchEntities"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_6de5fa76",
+          "name": "find_tools",
+          "arguments": {
+            "query": "agentQueries_incomeSummary"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_e1e2d1c7",
+          "name": "call_tool",
+          "arguments": {
+            "arguments": {
+              "query": "Alex"
+            },
+            "name": "agentQueries.searchEntities"
+          }
+        },
+        {
+          "type": "toolCall",
+          "id": "call_6a5e7d68",
+          "name": "call_tool",
+          "arguments": {
+            "arguments": {
+              "entityId": "person-alex-83",
+              "fromMonth": "2026-06",
+              "toMonth": "2026-08"
+            },
+            "name": "agentQueries.incomeSummary"
+          }
+        }
+      ],
+      "manualReview": "Same final prompt with primary metadata disabled after exact-name normalization. Reviewed successful canonical discovery, domain calls and cited answer. Timings are not controlled for cache or host load."
+    }
+  ]
+}

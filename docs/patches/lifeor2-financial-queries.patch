@@ -1,0 +1,935 @@
+--- /dev/null
++++ b/convex/agentQueries.ts
+@@ -0,0 +1,339 @@
++import { v } from "convex/values";
++import { query, type QueryCtx } from "./lib/scoped";
++import { owned, requireUser } from "./lib/access";
++import { date, add, scale } from "./lib/domain";
++import { entityAt } from "./lib/history";
++import { postingAmount } from "./lib/ledger";
++import type { Doc } from "./_generated/dataModel";
++
++// Exact decimal strings prevent models from re-scaling integer minor units.
++function decimalAmount(minor: number, precision: number, divisor = 1): string {
++  const n = BigInt(minor),
++    d = BigInt(divisor);
++  const magnitude = ((n < 0n ? -n : n) + d / 2n) / d;
++  const digits = magnitude.toString().padStart(precision + 1, "0");
++  return (
++    (n < 0n && magnitude !== 0n ? "-" : "") +
++    (precision
++      ? digits.slice(0, -precision) + "." + digits.slice(-precision)
++      : digits)
++  );
++}
++
++const pageArgs = {
++  cursor: v.optional(v.string()),
++  limit: v.optional(v.number()),
++};
++function limit(value = 20) {
++  if (!Number.isInteger(value) || value < 1 || value > 50)
++    throw new Error("limit must be 1–50");
++  return value;
++}
++export const searchEntities = query({
++  agent: { operation: "agentQueries.searchEntities", scope: "data:read" },
++  args: { query: v.string(), kind: v.optional(v.string()), ...pageArgs },
++  handler: async (ctx, a) => {
++    const user = await requireUser(ctx);
++    // Legacy Live includes rows without dataset_id; named datasets can use an exact index.
++    const entitiesQuery = ctx.scope.legacy
++      ? ctx.db
++          .query("entity")
++          .withIndex("by_user", (q) => q.eq("user_id", user._id))
++      : ctx.db
++          .query("entity")
++          .withIndex("by_user_dataset", (q) =>
++            q.eq("user_id", user._id).eq("dataset_id", ctx.scope.datasetId),
++          );
++    const page = await entitiesQuery.paginate({
++      cursor: a.cursor ?? null,
++      numItems: limit(a.limit ?? 50),
++    });
++    const entities = await Promise.all(page.page.map((e) => entityAt(ctx, e)));
++    return {
++      records: entities
++        .filter(
++          (e) =>
++            !e.archived &&
++            (!a.kind || e.kind.toLowerCase() === a.kind.toLowerCase()) &&
++            e.display_name.toLowerCase().includes(a.query.toLowerCase()),
++        )
++        .map((e) => ({ id: e._id, name: e.display_name, kind: e.kind })),
++      nextCursor: page.isDone ? null : page.continueCursor,
++      complete: page.isDone,
++      hint: "Continue through nextCursor before concluding that a name is unique or absent.",
++    };
++  },
++});
++async function portions(ctx: QueryCtx, p: Doc<"posting">) {
++  const sets = await ctx.db
++    .query("posting_attribution_set")
++    .withIndex("by_posting", (q) => q.eq("posting_id", p._id))
++    .take(101);
++  if (sets.length > 100)
++    throw new Error("Attribution history too large; narrow the query.");
++  const latest = sets.sort((a, b) => b.revision - a.revision)[0];
++  if (!latest) return [];
++  const parts = await ctx.db
++    .query("posting_attribution")
++    .withIndex("by_set", (q) => q.eq("set_id", latest._id))
++    .take(101);
++  if (parts.length > 100) throw new Error("Too many attribution portions.");
++  return parts;
++}
++async function journalData(ctx: QueryCtx, j: Doc<"journal_entry">) {
++  const postings = await ctx.db
++    .query("posting")
++    .withIndex("by_je", (q) => q.eq("je_id", j._id))
++    .take(101);
++  if (postings.length > 100)
++    throw new Error("Journal exceeds 100 postings; use journal detail tools.");
++  return Promise.all(
++    postings.map(async (p) => ({
++      p,
++      account: await ctx.db.get(p.account_id),
++      parts: await portions(ctx, p),
++    })),
++  );
++}
++const rangeArgs = {
++  from: v.string(),
++  to: v.string(),
++  chartId: v.optional(v.id("chart_of_accounts")),
++};
++function range(from: string, to: string) {
++  date(from);
++  date(to);
++  if (from > to) throw new Error("from must not follow to");
++}
++export const searchJournals = query({
++  agent: { operation: "agentQueries.searchJournals", scope: "data:read" },
++  args: {
++    ...rangeArgs,
++    text: v.optional(v.string()),
++    entityId: v.optional(v.id("entity")),
++    ...pageArgs,
++  },
++  handler: async (ctx, a) => {
++    range(a.from, a.to);
++    const user = await requireUser(ctx);
++    if (a.chartId) await owned(ctx, "chart_of_accounts", a.chartId, user._id);
++    if (a.entityId) await owned(ctx, "entity", a.entityId, user._id);
++    const page = await ctx.db
++      .query("journal_entry")
++      .withIndex("by_user_date", (q) =>
++        q
++          .eq("user_id", user._id)
++          .gte("accounting_date", a.from)
++          .lte("accounting_date", a.to),
++      )
++      .order("desc")
++      .paginate({ cursor: a.cursor ?? null, numItems: limit(a.limit) });
++    const records = [];
++    for (const j of page.page) {
++      if (
++        !j.accounting_date ||
++        j.accounting_date < a.from ||
++        j.accounting_date > a.to ||
++        (a.chartId && j.chart_id !== a.chartId) ||
++        (a.text && !j.memo.toLowerCase().includes(a.text.toLowerCase()))
++      )
++        continue;
++      const lines = await journalData(ctx, j);
++      if (
++        a.entityId &&
++        !lines.some((l) =>
++          l.parts.some((p) => p.subject_entity_id === a.entityId),
++        )
++      )
++        continue;
++      records.push({
++        id: j._id,
++        date: j.accounting_date,
++        memo: j.memo,
++        status: j.status,
++        reversesId: j.reverses_id,
++        postings: lines.map(({ p, account, parts }) => ({
++          id: p._id,
++          accountId: p.account_id,
++          account: account?.name,
++          type: account?.type,
++          minorUnits: postingAmount(p),
++          currency: p.currency,
++          subjects: parts.map((x) => ({
++            entityId: x.subject_entity_id,
++            minorUnits: x.minor_units,
++          })),
++        })),
++      });
++    }
++    return {
++      records,
++      nextCursor: page.isDone ? null : page.continueCursor,
++      complete: page.isDone,
++    };
++  },
++});
++
++export const incomeSummary = query({
++  agent: { operation: "agentQueries.incomeSummary", scope: "data:read" },
++  args: {
++    entityId: v.id("entity"),
++    fromMonth: v.string(),
++    toMonth: v.string(),
++    chartId: v.optional(v.id("chart_of_accounts")),
++  },
++  handler: async (ctx, a) => {
++    if (!/^\d{4}-\d{2}$/.test(a.fromMonth) || !/^\d{4}-\d{2}$/.test(a.toMonth))
++      throw new Error("Months must be YYYY-MM");
++    range(a.fromMonth + "-01", a.toMonth + "-01");
++    const months: string[] = [];
++    const end = new Date(a.toMonth + "-01T00:00:00Z");
++    for (
++      const d = new Date(a.fromMonth + "-01T00:00:00Z");
++      d <= end;
++      d.setUTCMonth(d.getUTCMonth() + 1)
++    ) {
++      months.push(d.toISOString().slice(0, 7));
++      if (months.length > 24)
++        throw new Error("Use a range of at most 24 months.");
++    }
++    const user = await requireUser(ctx),
++      entity = await entityAt(
++        ctx,
++        await owned(ctx, "entity", a.entityId, user._id),
++      );
++    if (a.chartId) await owned(ctx, "chart_of_accounts", a.chartId, user._id);
++    const endDate = new Date(
++      Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 0),
++    )
++      .toISOString()
++      .slice(0, 10);
++    const journals = await ctx.db
++      .query("journal_entry")
++      .withIndex("by_user_date", (q) =>
++        q
++          .eq("user_id", user._id)
++          .gte("accounting_date", a.fromMonth + "-01")
++          .lte("accounting_date", endDate),
++      )
++      .filter((q) => q.eq(q.field("status"), "posted"))
++      .take(501);
++    if (journals.length > 500)
++      throw new Error(
++        "More than 500 posted journals in range; narrow the period. No partial total was computed.",
++      );
++    const totals = new Map<string, Map<string, number>>();
++    const sources = new Map<string, Set<string>>();
++    const warnings = new Set<string>();
++    let examined = 0;
++    for (const j of journals) {
++      if (j.status !== "posted" || (a.chartId && j.chart_id !== a.chartId))
++        continue;
++      if (!j.accounting_date) {
++        warnings.add(
++          "Some posted journals lack accounting dates and could not be included.",
++        );
++        continue;
++      }
++      const month = j.accounting_date.slice(0, 7);
++      if (!months.includes(month)) continue;
++      if (++examined > 500)
++        throw new Error(
++          "More than 500 journals in range; narrow the period. No partial total was computed.",
++        );
++      const lines = await journalData(ctx, j);
++      // Attribution is often attached to the cash leg (e.g. payroll), not the income leg.
++      // Inherit only a single, fully classified subject across all explicit portions.
++      const allParts = lines.flatMap((l) => l.parts);
++      const subjects = new Set(allParts.map((p) => p.subject_entity_id));
++      const soleSubject =
++        allParts.length &&
++        subjects.size === 1 &&
++        !allParts.some((p) => p.unclassified || !p.subject_entity_id)
++          ? allParts[0].subject_entity_id
++          : undefined;
++      for (const { p, account, parts } of lines) {
++        if (!account)
++          throw new Error(
++            "Posting account is unavailable; no partial income total was computed.",
++          );
++        if (account.type !== "Income") continue;
++        let amount: number;
++        if (parts.some((x) => x.unclassified || !x.subject_entity_id))
++          warnings.add(
++            "Unclassified income portions were excluded; totals may omit earnings without subject attribution.",
++          );
++        if (parts.length)
++          amount = add(
++            ...parts
++              .filter(
++                (x) => !x.unclassified && x.subject_entity_id === a.entityId,
++              )
++              .map((x) => -x.minor_units),
++          );
++        else if (soleSubject)
++          amount = soleSubject === a.entityId ? -postingAmount(p) : 0;
++        else {
++          warnings.add(
++            "Income with missing or mixed subject attribution was excluded; totals are recorded attributable income, not proof of all earnings.",
++          );
++          continue;
++        }
++        if (!amount) continue;
++        const byMonth = totals.get(p.currency) ?? new Map<string, number>();
++        byMonth.set(month, add(byMonth.get(month) ?? 0, amount));
++        totals.set(p.currency, byMonth);
++        const key = p.currency + month,
++          ids = sources.get(key) ?? new Set<string>();
++        ids.add(j._id);
++        sources.set(key, ids);
++      }
++    }
++    return {
++      entity: { id: entity._id, name: entity.display_name },
++      fromMonth: a.fromMonth,
++      toMonth: a.toMonth,
++      basis:
++        "Posted Income-account credits minus debits by accounting month. Gross recognized income, NOT take-home pay. Latest explicit subject attribution; an unambiguous journal subject is inherited when the income leg lacks attribution. Reversals are signed in their own accounting month. Currencies are never combined.",
++      coverage:
++        "A month with no matching entries means no recorded attributable income, not confirmed zero earnings. Dataset completeness is unknown; records without accounting dates are excluded.",
++      currencies: [...totals].map(([currency, values]) => {
++        const totalMinorUnits = add(...values.values());
++        return {
++          currency,
++          minorUnitScale: scale(currency),
++          totalMinorUnits,
++          totalAmount: decimalAmount(totalMinorUnits, scale(currency)),
++          averageMonthlyAmount: decimalAmount(
++            totalMinorUnits,
++            scale(currency),
++            months.length,
++          ),
++          amountFormat:
++            "Decimal major currency units; average rounded to the currency precision, half away from zero. Do not divide these strings again.",
++          averageMonthlyMinorUnits: totalMinorUnits / months.length,
++          averageExact: {
++            numeratorMinorUnits: totalMinorUnits,
++            denominatorMonths: months.length,
++          },
++          months: months.map((month) => {
++            const ids = [...(sources.get(currency + month) ?? [])];
++            return {
++              month,
++              minorUnits: values.get(month) ?? 0,
++              amount: decimalAmount(values.get(month) ?? 0, scale(currency)),
++              hasRecordedIncome: ids.length > 0,
++              sourceCount: ids.length,
++              journalIds: ids.slice(0, 20),
++              sourcesTruncated: ids.length > 20,
++            };
++          }),
++        };
++      }),
++      warnings: [...warnings],
++      examinedJournals: examined,
++      queryComplete: true,
++      datasetCompleteness: "unknown",
++    };
++  },
++});
+--- /dev/null
++++ b/tests/agent-queries.test.ts
+@@ -0,0 +1,399 @@
++/// <reference types="vite/client" />
++import { convexTest } from "convex-test";
++import { expect, test } from "vitest";
++import { makeFunctionReference } from "convex/server";
++import schema from "../convex/schema";
++import authSchema from "../node_modules/@convex-dev/better-auth/src/component/schema";
++import { components } from "../convex/_generated/api";
++const modules = import.meta.glob(["../convex/**/*.ts", "../convex/**/*.js"]);
++const authModules = import.meta.glob(
++  "../node_modules/@convex-dev/better-auth/src/component/**/*.ts",
++);
++async function setup() {
++  const t = convexTest(schema, modules);
++  t.registerComponent("betterAuth", authSchema, authModules);
++  async function login(email: string) {
++    const now = Date.now();
++    const user = await t.mutation(components.betterAuth.adapter.create, {
++      input: {
++        model: "user",
++        data: {
++          name: email,
++          email,
++          emailVerified: true,
++          createdAt: now,
++          updatedAt: now,
++        },
++      },
++    });
++    const session = await t.mutation(components.betterAuth.adapter.create, {
++      input: {
++        model: "session",
++        data: {
++          userId: user._id,
++          token: email,
++          expiresAt: now + 86400000 * 1000,
++          createdAt: now,
++          updatedAt: now,
++        },
++      },
++    });
++    return {
++      client: t.withIdentity({ subject: user._id, sessionId: session._id }),
++      userId: user._id,
++    };
++  }
++  const a = await login("a@example.test"),
++    b = await login("b@example.test");
++  return { t, alice: a.client, bob: b.client, userId: a.userId };
++}
++const income = makeFunctionReference<"query">("agentQueries:incomeSummary");
++const search = makeFunctionReference<"query">("agentQueries:searchJournals");
++async function ledgerFixture() {
++  const f = await setup();
++  const records = await f.t.run(async (ctx) => {
++    const base = { user_id: f.userId, created_at: 1 };
++    const person = await ctx.db.insert("entity", {
++      ...base,
++      kind: "Person",
++      display_name: "Alex Morgan",
++    });
++    const other = await ctx.db.insert("entity", {
++      ...base,
++      kind: "Person",
++      display_name: "Jamie Morgan",
++    });
++    const chart = await ctx.db.insert("chart_of_accounts", {
++      ...base,
++      name: "Household",
++    });
++    const cash = await ctx.db.insert("ledger_account", {
++      ...base,
++      chart_id: chart,
++      name: "Checking",
++      type: "Asset",
++      normal_balance: "Debit",
++      currency: "USD",
++    });
++    const salary = await ctx.db.insert("ledger_account", {
++      ...base,
++      chart_id: chart,
++      name: "Salary",
++      type: "Income",
++      normal_balance: "Credit",
++      currency: "USD",
++    });
++    const ids = [];
++    for (const [month, amount, status, subject] of [
++      ["06", 1200000, "posted", person],
++      ["07", 1500000, "posted", person],
++      ["08", 1800000, "posted", person],
++      ["08", -300000, "posted", person],
++      ["08", 999999, "draft", person],
++      ["08", 999999, "posted", other],
++    ] as const) {
++      const event = await ctx.db.insert("event", {
++        ...base,
++        kind: "Payroll",
++        occurred_at: 1,
++        recorded_at: 1,
++        payload_json: "{}",
++      });
++      const je = await ctx.db.insert("journal_entry", {
++        ...base,
++        chart_id: chart,
++        event_id: event,
++        memo: "Payroll",
++        status,
++        accounting_date: `2026-${month}-15`,
++      });
++      ids.push(je);
++      const posting = await ctx.db.insert("posting", {
++        user_id: f.userId,
++        je_id: je,
++        account_id: cash,
++        minor_units: amount,
++        currency: "USD",
++        description: "Cash",
++      });
++      await ctx.db.insert("posting", {
++        user_id: f.userId,
++        je_id: je,
++        account_id: salary,
++        minor_units: -amount,
++        currency: "USD",
++        description: "Gross salary",
++      });
++      const set = await ctx.db.insert("posting_attribution_set", {
++        user_id: f.userId,
++        posting_id: posting,
++        revision: 1,
++        recorded_at: 1,
++        actor: f.userId,
++      });
++      await ctx.db.insert("posting_attribution", {
++        ...base,
++        set_id: set,
++        minor_units: amount,
++        currency: "USD",
++        subject_entity_id: subject,
++        unclassified: false,
++      });
++    }
++    return { person, other, chart, ids };
++  });
++  return { ...f, ...records };
++}
++test("income uses actual postings, cash-leg subject attribution, signed corrections and excludes drafts/other people", async () => {
++  const f = await ledgerFixture();
++  const result = await f.alice.query(income, {
++    entityId: f.person,
++    fromMonth: "2026-06",
++    toMonth: "2026-08",
++  });
++  expect(
++    result.currencies[0].months.map(
++      (m: { minorUnits: number }) => m.minorUnits,
++    ),
++  ).toEqual([1200000, 1500000, 1500000]);
++  expect(result.currencies[0].totalMinorUnits).toBe(4200000);
++  expect(result.currencies[0].totalAmount).toBe("42000.00");
++  expect(result.currencies[0].averageMonthlyAmount).toBe("14000.00");
++  expect(result.currencies[0].months[0].amount).toBe("12000.00");
++  expect(result.currencies[0].averageExact).toEqual({
++    numeratorMinorUnits: 4200000,
++    denominatorMonths: 3,
++  });
++  expect(result.basis).toContain("NOT take-home pay");
++  await expect(
++    f.bob.query(income, {
++      entityId: f.person,
++      fromMonth: "2026-06",
++      toMonth: "2026-08",
++    }),
++  ).rejects.toThrow();
++});
++test("missing months are explicit and date ranges validated", async () => {
++  const f = await ledgerFixture();
++  const result = await f.alice.query(income, {
++    entityId: f.person,
++    fromMonth: "2026-05",
++    toMonth: "2026-06",
++  });
++  expect(result.currencies[0].months[0]).toMatchObject({
++    minorUnits: 0,
++    hasRecordedIncome: false,
++    sourceCount: 0,
++  });
++  expect(result.coverage).toContain("not confirmed zero");
++  await expect(
++    f.alice.query(income, {
++      entityId: f.person,
++      fromMonth: "2026-13",
++      toMonth: "2026-14",
++    }),
++  ).rejects.toThrow();
++});
++test("journal pagination retains complete postings and returns all matching records", async () => {
++  const f = await ledgerFixture();
++  let cursor: string | undefined;
++  const records = [];
++  do {
++    const page = await f.alice.query(search, {
++      from: "2026-06-01",
++      to: "2026-08-31",
++      entityId: f.person,
++      limit: 2,
++      ...(cursor ? { cursor } : {}),
++    });
++    records.push(...page.records);
++    cursor = page.nextCursor ?? undefined;
++  } while (cursor);
++  expect(records).toHaveLength(5);
++  expect(records.every((r) => r.postings.length === 2)).toBe(true);
++  expect(
++    await f.bob.query(search, { from: "2026-06-01", to: "2026-08-31" }),
++  ).toMatchObject({ records: [], complete: true });
++});
++test("multiple currencies stay separate and mixed subject journals are excluded instead of guessed", async () => {
++  const f = await ledgerFixture();
++  await f.t.run(async (ctx) => {
++    const je = await ctx.db.get(f.ids[0]);
++    const lines = await ctx.db
++      .query("posting")
++      .withIndex("by_je", (q) => q.eq("je_id", f.ids[0]))
++      .collect();
++    for (const line of lines) {
++      const old = await ctx.db.get(line.account_id);
++      const account = await ctx.db.insert("ledger_account", {
++        user_id: f.userId,
++        created_at: 1,
++        chart_id: f.chart,
++        name: old!.name + " EUR",
++        type: old!.type,
++        normal_balance: old!.normal_balance,
++        currency: "EUR",
++      });
++      await ctx.db.patch(line._id, { currency: "EUR", account_id: account });
++    }
++    const cash = lines.find((p) => p.minor_units! > 0)!;
++    const set = await ctx.db
++      .query("posting_attribution_set")
++      .withIndex("by_posting", (q) => q.eq("posting_id", cash._id))
++      .first();
++    const part = await ctx.db
++      .query("posting_attribution")
++      .withIndex("by_set", (q) => q.eq("set_id", set!._id))
++      .first();
++    await ctx.db.patch(part!._id, { currency: "EUR" });
++    expect(je).not.toBeNull();
++  });
++  const result = await f.alice.query(income, {
++    entityId: f.person,
++    fromMonth: "2026-06",
++    toMonth: "2026-08",
++  });
++  expect(
++    result.currencies.map((c: { currency: string }) => c.currency).sort(),
++  ).toEqual(["EUR", "USD"]);
++  expect(
++    result.currencies.find((c: { currency: string }) => c.currency === "EUR")
++      .totalMinorUnits,
++  ).toBe(1200000);
++  await f.t.run(async (ctx) => {
++    const lines = await ctx.db
++      .query("posting")
++      .withIndex("by_je", (q) => q.eq("je_id", f.ids[1]))
++      .collect();
++    const cash = lines.find((p) => p.minor_units! > 0)!;
++    const set = await ctx.db
++      .query("posting_attribution_set")
++      .withIndex("by_posting", (q) => q.eq("posting_id", cash._id))
++      .first();
++    const part = await ctx.db
++      .query("posting_attribution")
++      .withIndex("by_set", (q) => q.eq("set_id", set!._id))
++      .first();
++    await ctx.db.patch(part!._id, { minor_units: 750000 });
++    await ctx.db.insert("posting_attribution", {
++      user_id: f.userId,
++      created_at: 1,
++      set_id: set!._id,
++      minor_units: 750000,
++      currency: "USD",
++      subject_entity_id: f.other,
++      unclassified: false,
++    });
++  });
++  const mixed = await f.alice.query(income, {
++    entityId: f.person,
++    fromMonth: "2026-07",
++    toMonth: "2026-07",
++  });
++  expect(mixed.currencies).toEqual([]);
++  expect(mixed.warnings.join(" ")).toContain("mixed subject");
++});
++test("archiving posted history does not erase recognized income", async () => {
++  const f = await ledgerFixture();
++  await f.t.run((ctx) => ctx.db.patch(f.ids[0], { archived: true }));
++  const result = await f.alice.query(income, {
++    entityId: f.person,
++    fromMonth: "2026-06",
++    toMonth: "2026-06",
++  });
++  expect(result.currencies[0].totalMinorUnits).toBe(1200000);
++});
++
++test("income requires authentication and rejects a person from another dataset of the same owner", async () => {
++  const f = await ledgerFixture();
++  const createDataset = makeFunctionReference<"mutation">("datasets:create");
++  const otherDataset = await f.alice.mutation(createDataset, { name: "Other" });
++  await expect(
++    f.alice.query(income, {
++      datasetId: otherDataset,
++      entityId: f.person,
++      fromMonth: "2026-06",
++      toMonth: "2026-08",
++    }),
++  ).rejects.toThrow();
++  await expect(
++    f.t.query(income, {
++      entityId: f.person,
++      fromMonth: "2026-06",
++      toMonth: "2026-08",
++    }),
++  ).rejects.toThrow("Unauthenticated");
++});
++
++test("decimal amounts preserve signed cents and round averages half away from zero", async () => {
++  const f = await ledgerFixture();
++  for (const minor of [-1, 1]) {
++    await f.t.run(async (ctx) => {
++      const postings = await ctx.db
++        .query("posting")
++        .withIndex("by_je", (q) => q.eq("je_id", f.ids[0]))
++        .collect();
++      for (const p of postings) {
++        const account = await ctx.db.get(p.account_id);
++        await ctx.db.patch(p._id, {
++          minor_units: account?.type === "Income" ? -minor : minor,
++        });
++        const sets = await ctx.db
++          .query("posting_attribution_set")
++          .withIndex("by_posting", (q) => q.eq("posting_id", p._id))
++          .collect();
++        for (const set of sets) {
++          const parts = await ctx.db
++            .query("posting_attribution")
++            .withIndex("by_set", (q) => q.eq("set_id", set._id))
++            .collect();
++          for (const part of parts)
++            await ctx.db.patch(part._id, { minor_units: minor });
++        }
++      }
++    });
++    const result = await f.alice.query(income, {
++      entityId: f.person,
++      fromMonth: "2026-05",
++      toMonth: "2026-06",
++    });
++    const expected = minor < 0 ? "-0.01" : "0.01";
++    expect(result.currencies[0].totalAmount).toBe(expected);
++    expect(result.currencies[0].averageMonthlyAmount).toBe(expected);
++    expect(result.currencies[0].averageExact.denominatorMonths).toBe(2);
++  }
++});
++
++test("named-dataset person search does not page through unrelated datasets", async () => {
++  const f = await setup();
++  const create = makeFunctionReference<"mutation">("datasets:create");
++  const foreign = await f.alice.mutation(create, { name: "Other records" });
++  const target = await f.alice.mutation(create, { name: "Requested records" });
++  await f.t.run(async (ctx) => {
++    for (let i = 0; i < 100; i++)
++      await ctx.db.insert("entity", {
++        user_id: f.userId,
++        dataset_id: foreign,
++        created_at: i,
++        kind: "Person",
++        display_name: "Alex elsewhere",
++      });
++    for (let i = 0; i < 31; i++)
++      await ctx.db.insert("entity", {
++        user_id: f.userId,
++        dataset_id: target,
++        created_at: i + 100,
++        kind: "Person",
++        display_name: i === 0 ? "Alex here" : `Person ${i}`,
++      });
++  });
++  const result = await f.alice.query(
++    makeFunctionReference<"query">("agentQueries:searchEntities"),
++    { datasetId: target, query: "Alex" },
++  );
++  expect(result.records.map((p: { name: string }) => p.name)).toEqual([
++    "Alex here",
++  ]);
++  expect(result.complete).toBe(true);
++  expect(result.nextCursor).toBeNull();
++});
+--- a/convex/schema/core.ts
++++ b/convex/schema/core.ts
+@@ -13,5 +13,7 @@
+     display_name: v.string(),
+     user_id: v.string(), // Better Auth component ID; not an app-table ID,
+-  }).index("by_user", ["user_id"]),
++  })
++    .index("by_user", ["user_id"])
++    .index("by_user_dataset", ["user_id", "dataset_id"]),
+-
++
+   // Arrangement: A relationship or agreement with temporal validity
+--- a/convex/schema/finance.ts
++++ b/convex/schema/finance.ts
+@@ -49,4 +49,5 @@
+     .index("by_coa", ["coa_arrangement_id"])
+     .index("by_chart", ["chart_id"])
++    .index("by_user_date", ["user_id", "accounting_date"])
+     .index("by_event", ["event_id"])
+     .index("by_reverses", ["reverses_id"]),
+--- a/scripts/generate-mcp-catalog.ts
++++ b/scripts/generate-mcp-catalog.ts
+@@ -4,5 +4,5 @@
+ // This inventory is explicit. New public Convex functions are not automatically
+ // agent-accessible: their source must opt in with an agent policy first.
+-const modules = ["arrangements", "cashRouting", "entities", "events", "evidence", "finance", "measurements", "obligations", "observations", "planning", "tags", "trash"];
++const modules = ["agentQueries", "arrangements", "cashRouting", "entities", "events", "evidence", "finance", "measurements", "obligations", "observations", "planning", "tags", "trash"];
+ type Validator = { type: string; value?: any; tableName?: string; keys?: Validator; values?: { fieldType: Validator } };
+ function schema(v: Validator): any {
+@@ -21,4 +21,9 @@
+ }
+ const descriptions: Record<string, string> = {
++  "agentQueries.searchEntities": "Find people, family members, companies and households by name; query can be empty. Omit limit for the default 50-row scan within the dataset (maximum 50). Paginated: follow nextCursor before concluding uniqueness or absence. Returns compact IDs and names.",
++  "agentQueries.searchJournals": "Search financial journal records by inclusive from/to dates (YYYY-MM-DD), memo text, chart and explicitly attributed person/entity. Returns bounded pages WITH posting amounts in minor units, currencies and account types. Follow nextCursor even for empty pages.",
++  "agentQueries.incomeSummary": "Calculate a person's monthly income, salary/earnings totals and average over fromMonth..toMonth (YYYY-MM). Resolve entityId first. Deterministic gross recognized Income-account totals, NOT net take-home pay. Includes signed reversals, explicit attribution, separate currencies, missing-month warnings and source journal IDs. Prefer this to listing all journals for income questions.",
++  "finance.getJournalEntry": "Read one journal with all posting amounts, currencies and account IDs. Use searchJournals for filtered financial searches.",
++  "finance.listJournalEntries": "List journal HEADERS only, without amounts. Prefer agentQueries.searchJournals for bounded date/person searches and agentQueries.incomeSummary for monthly earnings.",
+   "entities.update": "Change entity facts from an effective date, preserving history. Read the current revision first.",
+   "arrangements.update": "Revise an arrangement's effective timeline, roles and terms while preserving history.",
+@@ -45,5 +50,5 @@
+     }
+     if (policy.revision && !input.required.includes("expectedRevision")) input.required.push("expectedRevision");
+-    const title = `${name}: ${fn.replace(/([A-Z])/g, " $1").toLowerCase()}`;
++    const title = ({ "agentQueries.searchEntities": "Find people and organizations", "agentQueries.searchJournals": "Search financial records", "agentQueries.incomeSummary": "Monthly income" } as Record<string, string>)[policy.operation] ?? `${name}: ${fn.replace(/([A-Z])/g, " $1").toLowerCase()}`;
+     catalog.push({ name: policy.operation, title, description: descriptions[policy.operation] ?? `${title}. Uses the same validation, ownership rules, history and dataset isolation as the LifeOR2 UI. Dates are YYYY-MM-DD; timestamps are Unix milliseconds; monetary minor_units are exact integers.`,
+       functionName: `${name}:${fn}`, kind, scope: policy.scope, inputSchema: input });
+--- a/lib/mcp/catalog.json
++++ b/lib/mcp/catalog.json
+@@ -1,3 +1,128 @@
+ [
++  {
++    "name": "agentQueries.incomeSummary",
++    "title": "Monthly income",
++    "description": "Calculate a person's monthly income, salary/earnings totals and average over fromMonth..toMonth (YYYY-MM). Resolve entityId first. Deterministic gross recognized Income-account totals, NOT net take-home pay. Includes signed reversals, explicit attribution, separate currencies, missing-month warnings and source journal IDs. Prefer this to listing all journals for income questions.",
++    "functionName": "agentQueries:incomeSummary",
++    "kind": "query",
++    "scope": "data:read",
++    "inputSchema": {
++      "type": "object",
++      "properties": {
++        "entityId": {
++          "type": "string",
++          "minLength": 1,
++          "description": "Stable entity record ID returned by LifeOR2."
++        },
++        "fromMonth": {
++          "type": "string"
++        },
++        "toMonth": {
++          "type": "string"
++        },
++        "chartId": {
++          "type": "string",
++          "minLength": 1,
++          "description": "Stable chart_of_accounts record ID returned by LifeOR2."
++        },
++        "datasetId": {
++          "type": "string",
++          "minLength": 1,
++          "description": "Explicit authorized dataset ID. Obtain it using datasets.list. Never infer it from the browser's active dataset."
++        }
++      },
++      "required": [
++        "entityId",
++        "fromMonth",
++        "toMonth",
++        "datasetId"
++      ],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "agentQueries.searchEntities",
++    "title": "Find people and organizations",
++    "description": "Find people, family members, companies and households by name; query can be empty. Omit limit for the default 50-row scan within the dataset (maximum 50). Paginated: follow nextCursor before concluding uniqueness or absence. Returns compact IDs and names.",
++    "functionName": "agentQueries:searchEntities",
++    "kind": "query",
++    "scope": "data:read",
++    "inputSchema": {
++      "type": "object",
++      "properties": {
++        "query": {
++          "type": "string"
++        },
++        "kind": {
++          "type": "string"
++        },
++        "cursor": {
++          "type": "string"
++        },
++        "limit": {
++          "type": "number"
++        },
++        "datasetId": {
++          "type": "string",
++          "minLength": 1,
++          "description": "Explicit authorized dataset ID. Obtain it using datasets.list. Never infer it from the browser's active dataset."
++        }
++      },
++      "required": [
++        "query",
++        "datasetId"
++      ],
++      "additionalProperties": false
++    }
++  },
++  {
++    "name": "agentQueries.searchJournals",
++    "title": "Search financial records",
++    "description": "Search financial journal records by inclusive from/to dates (YYYY-MM-DD), memo text, chart and explicitly attributed person/entity. Returns bounded pages WITH posting amounts in minor units, currencies and account types. Follow nextCursor even for empty pages.",
++    "functionName": "agentQueries:searchJournals",
++    "kind": "query",
++    "scope": "data:read",
++    "inputSchema": {
++      "type": "object",
++      "properties": {
++        "from": {
++          "type": "string"
++        },
++        "to": {
++          "type": "string"
++        },
++        "chartId": {
++          "type": "string",
++          "minLength": 1,
++          "description": "Stable chart_of_accounts record ID returned by LifeOR2."
++        },
++        "text": {
++          "type": "string"
++        },
++        "entityId": {
++          "type": "string",
++          "minLength": 1,
++          "description": "Stable entity record ID returned by LifeOR2."
++        },
++        "cursor": {
++          "type": "string"
++        },
++        "limit": {
++          "type": "number"
++        },
++        "datasetId": {
++          "type": "string",
++          "minLength": 1,
++          "description": "Explicit authorized dataset ID. Obtain it using datasets.list. Never infer it from the browser's active dataset."
++        }
++      },
++      "required": [
++        "from",
++        "to",
++        "datasetId"
++      ],
++      "additionalProperties": false
++    }
++  },
+   {
+     "name": "arrangements.addRole",
+@@ -3464,5 +3589,5 @@
+     "name": "finance.getJournalEntry",
+     "title": "finance: get journal entry",
+-    "description": "finance: get journal entry. Uses the same validation, ownership rules, history and dataset isolation as the LifeOR2 UI. Dates are YYYY-MM-DD; timestamps are Unix milliseconds; monetary minor_units are exact integers.",
++    "description": "Read one journal with all posting amounts, currencies and account IDs. Use searchJournals for filtered financial searches.",
+     "functionName": "finance:getJournalEntry",
+     "kind": "query",
+@@ -3628,5 +3753,5 @@
+     "name": "finance.listJournalEntries",
+     "title": "finance: list journal entries",
+-    "description": "finance: list journal entries. Uses the same validation, ownership rules, history and dataset isolation as the LifeOR2 UI. Dates are YYYY-MM-DD; timestamps are Unix milliseconds; monetary minor_units are exact integers.",
++    "description": "List journal HEADERS only, without amounts. Prefer agentQueries.searchJournals for bounded date/person searches and agentQueries.incomeSummary for monthly earnings.",
+     "functionName": "finance:listJournalEntries",
+     "kind": "query",

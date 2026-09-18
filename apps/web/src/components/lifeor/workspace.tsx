@@ -31,6 +31,7 @@ import { useAuthUser } from "@/components/auth/auth-guard";
 import { errors } from "@/lib/lifeor/config";
 import { useWorkspace, request } from "./use-workspace";
 import { Confirmation } from "./confirmation";
+import { ContextMeter } from "./context-meter";
 import { Messages } from "./messages";
 import "./workspace.css";
 export function Workspace() {
@@ -451,6 +452,29 @@ export function Workspace() {
                 continue. Saved history is still available.
               </p>
             )}
+            <div className="context-toolbar">
+              <ContextMeter
+                usage={
+                  w.live?.context ??
+                  w.state?.runs.findLast((r) => r.context)?.context
+                }
+                compacting={w.live?.stage === "Compacting conversation…"}
+              />
+              {conversation && !!w.state?.runs.length && (
+                <button
+                  className="compact-button"
+                  disabled={!!w.active || w.busy || !canContinue}
+                  onClick={() => {
+                    void w.action("runs/compact", {
+                      conversationId: conversation._id,
+                      requestId: crypto.randomUUID(),
+                    });
+                  }}
+                >
+                  Compact now
+                </button>
+              )}
+            </div>
             <form
               className="composer"
               onSubmit={(e) => {

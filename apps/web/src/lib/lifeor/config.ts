@@ -70,15 +70,22 @@ export function modelConfig() {
   ).href.replace(/\/$/, "");
   const model = process.env.LLM_MODEL;
   if (!model) throw new AppError("MODEL_UNAVAILABLE", 503);
-  const context = integer("LLM_CONTEXT_WINDOW", 16384, 2048, 1048576);
+  const context = integer("LLM_CONTEXT_WINDOW", 32768, 2048, 1048576);
   const output = integer("LLM_MAX_OUTPUT_TOKENS", 2048, 128, 32768);
   if (output >= context)
     throw new Error("Output limit must be below context window");
+  const compactAt = integer("LLM_COMPACT_AT_PERCENT", 80, 30, 95);
+  const compactTo = integer("LLM_COMPACT_TO_PERCENT", 55, 10, 80);
+  if (compactTo >= compactAt)
+    throw new Error("Compaction target must be below its trigger");
   return {
     baseUrl,
     model,
     context,
     output,
+    compactAt,
+    compactTo,
+    autoCompact: process.env.LLM_AUTO_COMPACT !== "false",
     apiKey: process.env.LLM_API_KEY || "local",
     concurrency: integer("LLM_MAX_CONCURRENT_RUNS", 2, 1, 32),
     rounds: integer("AGENT_MAX_TOOL_ROUNDS", 12, 1, 50),
@@ -139,7 +146,9 @@ export const errors: Record<string, string> = {
     "A conversation is already running. Wait for it to finish or stop it first.",
   RATE_LIMITED: "Too many requests. Please wait a minute and try again.",
   CONTEXT_LIMIT:
-    "This conversation has reached the model’s context limit. Start a new conversation.",
+    "The current request is too large for the model, even after compaction. Try a smaller request or a narrower records query. Your history and completed actions are saved.",
+  COMPACTION_FAILED:
+    "Conversation compaction could not finish. Your history and completed actions are saved. Try again when the model is available.",
   TOOL_LIMIT:
     "The agent reached its operation limit. Review the completed actions before continuing.",
   TIMEOUT:

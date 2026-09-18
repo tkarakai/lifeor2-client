@@ -1,5 +1,6 @@
 /** Private persistence. Only the authenticated, server-key-protected HTTP gateway calls these. */
 import { v } from "convex/values";
+import { makeFunctionReference } from "convex/server";
 import { internalMutation } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -16,7 +17,12 @@ async function conversation(ctx: MutationCtx, ownerId: string, id: string) {
 async function run(ctx: MutationCtx, ownerId: string, id: string) {
   const key = ctx.db.normalizeId("lifeorRuns", id);
   const row = key ? await ctx.db.get(key) : null;
-  if (!row || row.ownerId !== ownerId) throw new Error("NOT_FOUND");
+  if (
+    !row ||
+    row.ownerId !== ownerId ||
+    !(await ctx.db.get(row.conversationId))
+  )
+    throw new Error("NOT_FOUND");
   return row;
 }
 const str = (p: Record<string, unknown>, key: string, max = 32000): string => {
@@ -94,6 +100,15 @@ export const dispatch = internalMutation({
         typeof p.conversationId === "string"
           ? await conversation(ctx, ownerId, p.conversationId)
           : null;
+      const history = selected
+        ? await ctx.db
+            .query("lifeorRuns")
+            .withIndex("by_conversation", (q) =>
+              q.eq("conversationId", selected._id),
+            )
+            .order("desc")
+            .paginate({ numItems: 30, cursor: null })
+        : null;
       return {
         connection: conn
           ? {
@@ -103,15 +118,12 @@ export const dispatch = internalMutation({
               datasets: conn.datasets,
             }
           : null,
-        conversations: conversations.sort((a, b) => b.updatedAt - a.updatedAt),
-        runs: selected
-          ? await ctx.db
-              .query("lifeorRuns")
-              .withIndex("by_conversation", (q) =>
-                q.eq("conversationId", selected._id),
-              )
-              .collect()
-          : [],
+        conversations: conversations
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .map(({ memory: _memory, ...c }) => c),
+        runs: history ? history.page.reverse() : [],
+        historyCursor:
+          history && !history.isDone ? history.continueCursor : null,
       };
     }
     if (op === "credentials") return conn;
@@ -225,33 +237,80 @@ export const dispatch = internalMutation({
         updatedAt: Date.now(),
       });
     }
-    if (op.startsWith("conversation.")) {
+    if (op === "conversation.history") {
       const c = await conversation(ctx, ownerId, str(p, "id"));
-      const runs = await ctx.db
+      const page = await ctx.db
         .query("lifeorRuns")
         .withIndex("by_conversation", (q) => q.eq("conversationId", c._id))
-        .collect();
-      if (runs.some(active)) throw new Error("RUN_ACTIVE");
+        .order("desc")
+        .paginate({
+          numItems: 30,
+          cursor: typeof p.cursor === "string" ? p.cursor : null,
+        });
+      return {
+        runs: page.page.reverse(),
+        cursor: page.isDone ? null : page.continueCursor,
+      };
+    }
+    if (op.startsWith("conversation.")) {
+      const c = await conversation(ctx, ownerId, str(p, "id"));
+      const owned = (
+        await Promise.all(
+          (["running", "waiting"] as const).map((status) =>
+            ctx.db
+              .query("lifeorRuns")
+              .withIndex("by_owner_status", (q) =>
+                q.eq("ownerId", ownerId).eq("status", status),
+              )
+              .take(1),
+          ),
+        )
+      ).flat();
+      if (owned.some((r) => r.conversationId === c._id))
+        throw new Error("RUN_ACTIVE");
       if (op === "conversation.rename")
         await ctx.db.patch(c._id, {
           title: str(p, "title", 120).trim(),
           updatedAt: Date.now(),
         });
       else if (op === "conversation.delete") {
-        for (const r of runs) await ctx.db.delete(r._id);
+        const memory = await ctx.db
+          .query("lifeorMemory")
+          .withIndex("by_conversation", (q) => q.eq("conversationId", c._id))
+          .unique();
+        if (memory) await ctx.db.delete(memory._id);
         await ctx.db.delete(c._id);
+        await ctx.scheduler.runAfter(
+          0,
+          makeFunctionReference<"mutation">("lifeor:purgeConversation"),
+          { conversationId: c._id },
+        );
       } else throw new Error("INVALID_INPUT");
       return null;
     }
     if (op === "run.start") {
       const c = await conversation(ctx, ownerId, str(p, "conversationId"));
+      const memory =
+        (await ctx.db
+          .query("lifeorMemory")
+          .withIndex("by_conversation", (q) => q.eq("conversationId", c._id))
+          .unique()) ?? c.memory;
       const runs = await ctx.db
         .query("lifeorRuns")
-        .withIndex("by_conversation", (q) => q.eq("conversationId", c._id))
+        .withIndex("by_conversation", (q) =>
+          q
+            .eq("conversationId", c._id)
+            .gt("_creationTime", memory?.through ?? 0),
+        )
         .collect();
-      const duplicate = runs.find((r) => r.requestId === p.requestId);
+      const duplicate = await ctx.db
+        .query("lifeorRuns")
+        .withIndex("by_request", (q) =>
+          q.eq("conversationId", c._id).eq("requestId", str(p, "requestId")),
+        )
+        .unique();
       if (duplicate) {
-        if (duplicate.prompt !== p.prompt)
+        if (duplicate.prompt !== p.prompt || duplicate.kind !== p.kind)
           throw new Error("IDEMPOTENCY_CONFLICT");
         return { run: duplicate, created: false };
       }
@@ -283,7 +342,6 @@ export const dispatch = internalMutation({
         )
         .take(10);
       if (recent.length >= 10) throw new Error("RATE_LIMITED");
-      if (runs.length >= 20) throw new Error("CONTEXT_LIMIT");
       await rateLimit(ctx, {
         name: "mutationGlobal",
         key: ownerId,
@@ -294,6 +352,7 @@ export const dispatch = internalMutation({
         ownerId,
         conversationId: c._id,
         requestId: str(p, "requestId", 128),
+        ...(p.kind === "compaction" ? { kind: "compaction" as const } : {}),
         instance: str(p, "instance"),
         status: "running",
         prompt,
@@ -303,21 +362,54 @@ export const dispatch = internalMutation({
         updatedAt: Date.now(),
       });
       await ctx.db.patch(c._id, {
-        title: runs.length ? c.title : prompt.slice(0, 70),
+        title: runs.length || memory ? c.title : prompt.slice(0, 70),
         updatedAt: Date.now(),
       });
       return {
         run: await ctx.db.get(id),
         created: true,
-        conversation: c,
+        conversation: {
+          ...c,
+          ...(memory
+            ? { memory: { messages: memory.messages, through: memory.through } }
+            : {}),
+        },
         history: runs,
       };
     }
     if (op.startsWith("run.")) {
       const r = await run(ctx, ownerId, str(p, "id"));
       if (op === "run.get") return r;
+      if (op === "run.traffic") {
+        const rows = await ctx.db
+          .query("lifeorTraffic")
+          .withIndex("by_run", (q) => q.eq("runId", r._id))
+          .take(128);
+        return {
+          entries: rows.map((row) => row.entry),
+          limited: rows.length === 128,
+        };
+      }
       if (!active(r)) throw new Error("RUN_FINISHED");
-      if (op === "run.event") {
+      if (op === "run.observe") {
+        if ((r.observationCount ?? 0) < 128) {
+          const entry = p.observation as Doc<"lifeorTraffic">["entry"];
+          if (
+            !entry ||
+            typeof entry.body !== "string" ||
+            new TextEncoder().encode(entry.body).length > 48000
+          )
+            throw new Error("INVALID_INPUT");
+          await ctx.db.insert("lifeorTraffic", {
+            ownerId,
+            runId: r._id,
+            entry,
+          });
+          await ctx.db.patch(r._id, {
+            observationCount: (r.observationCount ?? 0) + 1,
+          });
+        }
+      } else if (op === "run.event") {
         if (
           r.events.length >= 200 ||
           (p.type === "operation" && JSON.stringify(r.events).length > 400000)
@@ -380,8 +472,33 @@ export const dispatch = internalMutation({
         const status = p.status as "completed" | "failed" | "canceled";
         if (!["completed", "failed", "canceled"].includes(status))
           throw new Error("INVALID_INPUT");
+        if (
+          typeof p.memory === "string" &&
+          new TextEncoder().encode(p.memory).length <= 600000
+        ) {
+          const messages = JSON.parse(p.memory);
+          if (!Array.isArray(messages)) throw new Error("INVALID_INPUT");
+          const prior = await ctx.db
+            .query("lifeorMemory")
+            .withIndex("by_conversation", (q) =>
+              q.eq("conversationId", r.conversationId),
+            )
+            .unique();
+          const checkpoint = { messages: p.memory, through: r._creationTime };
+          if (prior) await ctx.db.patch(prior._id, checkpoint);
+          else
+            await ctx.db.insert("lifeorMemory", {
+              conversationId: r.conversationId,
+              ...checkpoint,
+            });
+          // Migrate any early inline checkpoint without loading it into future history lists.
+          await ctx.db.patch(r.conversationId, { memory: undefined });
+        }
         await ctx.db.patch(r._id, {
           status,
+          ...(p.context
+            ? { context: p.context as Doc<"lifeorRuns">["context"] }
+            : {}),
           answer: typeof p.answer === "string" ? p.answer.slice(0, 64000) : "",
           ...(typeof p.error === "string"
             ? { error: p.error.slice(0, 1000) }
@@ -393,5 +510,31 @@ export const dispatch = internalMutation({
       return null;
     }
     throw new Error("INVALID_INPUT");
+  },
+});
+
+/** Keep deletion bounded regardless of conversation length or captured payload sizes. */
+export const purgeConversation = internalMutation({
+  args: { conversationId: v.id("lifeorConversations") },
+  handler: async (ctx, { conversationId }) => {
+    if (await ctx.db.get(conversationId)) return;
+    const run = await ctx.db
+      .query("lifeorRuns")
+      .withIndex("by_conversation", (q) =>
+        q.eq("conversationId", conversationId),
+      )
+      .first();
+    if (!run) return;
+    const traffic = await ctx.db
+      .query("lifeorTraffic")
+      .withIndex("by_run", (q) => q.eq("runId", run._id))
+      .take(10);
+    for (const entry of traffic) await ctx.db.delete(entry._id);
+    if (traffic.length < 10) await ctx.db.delete(run._id);
+    await ctx.scheduler.runAfter(
+      0,
+      makeFunctionReference<"mutation">("lifeor:purgeConversation"),
+      { conversationId },
+    );
   },
 });

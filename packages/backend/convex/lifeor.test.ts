@@ -1,7 +1,8 @@
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import schema from "./schema";
 import { internal } from "./_generated/api";
+afterEach(() => vi.useRealTimers());
 const modules = import.meta.glob("./**/*.*s");
 function setup() {
   const t = convexTest(schema, modules);
@@ -55,6 +56,152 @@ describe("LifeOR2 persistence and isolation", () => {
       await expect(call("bob", op, { id: started.run._id })).rejects.toThrow(
         "NOT_FOUND",
       );
+  });
+  test("conversations continue beyond 20 runs and checkpoints avoid reloading old model history", async () => {
+    const { t, call } = setup();
+    const id = await connected(call);
+    await t.run(async (ctx) => {
+      const conversationId = ctx.db.normalizeId("lifeorConversations", id)!;
+      for (let i = 0; i < 35; i++)
+        await ctx.db.insert("lifeorRuns", {
+          ownerId: "alice",
+          conversationId,
+          requestId: `old-${i}`,
+          instance: "one",
+          status: "completed",
+          prompt: `Message ${i}`,
+          answer: "Done",
+          events: [],
+          createdAt: Date.now() - 120000,
+          updatedAt: Date.now() - 120000,
+        });
+    });
+    const started = await call("alice", "run.start", {
+      conversationId: id,
+      requestId: "26",
+      prompt: "Continue",
+      instance: "one",
+    });
+    expect(started.created).toBe(true);
+    expect(started.history).toHaveLength(35);
+    const memory = JSON.stringify([
+      { role: "user", content: "Saved working memory", timestamp: 1 },
+    ]);
+    await call("alice", "run.finish", {
+      id: started.run._id,
+      status: "completed",
+      answer: "Continued",
+      memory,
+      context: {
+        tokens: 100,
+        window: 4096,
+        percent: 2,
+        outputReserve: 256,
+        estimated: true,
+      },
+    });
+    const next = await call("alice", "run.start", {
+      conversationId: id,
+      requestId: "27",
+      prompt: "Next",
+      instance: "one",
+    });
+    expect(next.history).toHaveLength(0);
+    expect(next.conversation.memory.messages).toBe(memory);
+    // An older request remains idempotent even after its context has been compacted.
+    const duplicate = await call("alice", "run.start", {
+      conversationId: id,
+      requestId: "26",
+      prompt: "Continue",
+      instance: "one",
+    });
+    expect(duplicate.created).toBe(false);
+    const state = await call("alice", "state", {
+      instance: "one",
+      liveIds: [next.run._id],
+      conversationId: id,
+    });
+    expect(state.runs).toHaveLength(30);
+    const earlier = await call("alice", "conversation.history", {
+      id,
+      cursor: state.historyCursor,
+    });
+    expect(earlier.runs).toHaveLength(7);
+    expect(earlier.cursor).toBeNull();
+    await expect(
+      call("bob", "conversation.history", { id, cursor: state.historyCursor }),
+    ).rejects.toThrow("NOT_FOUND");
+    expect(state.conversations[0].memory).toBeUndefined();
+  });
+  test("traffic is owner-scoped, bounded, and deleted with its conversation", async () => {
+    vi.useFakeTimers();
+    const { t, call } = setup();
+    const id = await connected(call);
+    const started = await call("alice", "run.start", {
+      conversationId: id,
+      requestId: "one",
+      prompt: "Read",
+      instance: "one",
+    });
+    const entry = {
+      id: "entry",
+      exchange: "exchange",
+      channel: "model",
+      direction: "request",
+      label: "Generate",
+      body: "{}",
+      at: 1,
+      truncated: false,
+    };
+    await call("alice", "run.observe", {
+      id: started.run._id,
+      observation: entry,
+    });
+    await expect(
+      call("bob", "run.traffic", { id: started.run._id }),
+    ).rejects.toThrow("NOT_FOUND");
+    await expect(
+      call("bob", "run.observe", { id: started.run._id, observation: entry }),
+    ).rejects.toThrow("NOT_FOUND");
+    expect(
+      (await call("alice", "run.traffic", { id: started.run._id })).entries,
+    ).toEqual([entry]);
+    await expect(
+      call("alice", "run.observe", {
+        id: started.run._id,
+        observation: { ...entry, body: "x".repeat(48001) },
+      }),
+    ).rejects.toThrow("INVALID_INPUT");
+    for (let i = 1; i < 130; i++)
+      await call("alice", "run.observe", {
+        id: started.run._id,
+        observation: { ...entry, id: `entry-${i}` },
+      });
+    const captured = await call("alice", "run.traffic", {
+      id: started.run._id,
+    });
+    expect(captured.entries).toHaveLength(128);
+    expect(captured.limited).toBe(true);
+    await call("alice", "run.finish", {
+      id: started.run._id,
+      status: "completed",
+      answer: "Done",
+      memory: "[]",
+    });
+    await call("alice", "conversation.delete", { id });
+    await expect(
+      call("alice", "run.traffic", { id: started.run._id }),
+    ).rejects.toThrow("NOT_FOUND");
+    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    expect(
+      await t.run((ctx) => ctx.db.query("lifeorTraffic").collect()),
+    ).toHaveLength(0);
+    expect(
+      await t.run((ctx) => ctx.db.query("lifeorMemory").collect()),
+    ).toHaveLength(0);
+    expect(
+      await t.run((ctx) => ctx.db.query("lifeorRuns").collect()),
+    ).toHaveLength(0);
   });
   test("atomic duplicate send and competing tabs execute one turn", async () => {
     const { call } = setup();
