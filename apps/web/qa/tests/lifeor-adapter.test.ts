@@ -237,6 +237,56 @@ test("real MCP v2 adapter persists stable write keys and waits for an explicit c
   }
 });
 
+test("later reports and successful writes invalidate an earlier prepared answer", async () => {
+  const handler = createMcpHandler(() => {
+    const mcp = new McpServer({ name: "report-fixture", version: "1" });
+    for (const name of ["reports.finances", "reports.present", "records.edit"]) {
+      mcp.registerTool(name, {
+        description: name,
+        annotations: { readOnlyHint: name !== "records.edit" },
+        inputSchema: fromJsonSchema({
+          type: "object", properties: { datasetId: { type: "string" } },
+          required: ["datasetId"], additionalProperties: false,
+        }),
+      }, async () => {
+        const value = name === "reports.finances" ? { reportId: "fresh" }
+          : name === "reports.present" ? { answer: "Verified facts" } : { saved: true };
+        return { resultType: "complete", structuredContent: value,
+          content: [{ type: "text", text: JSON.stringify(value) }] };
+      });
+    }
+    return mcp;
+  }, { legacy: "reject", responseMode: "json" });
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: r => handler.fetch(r) });
+  const client = new Client({ name: "report-client", version: "1" }, {
+    versionNegotiation: { mode: { pin: "2026-07-28" } },
+    capabilities: { elicitation: { form: {} } },
+  });
+  let prepared: string | undefined;
+  let required = false;
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${server.port}`)));
+    const tools = await adapter(client, (async () => null) as Store, "run", "dataset",
+      new AbortController().signal, () => {}, value => { prepared = value; }, value => { required = value; });
+    const call = tools.find(t => t.name === "call_tool")!;
+    const execute = (name: string) => call.execute(name, { name, arguments: {} });
+    await execute("reports.finances");
+    expect(required).toBe(true);
+    await execute("reports.present");
+    expect(prepared).toBe("Verified facts");
+    await execute("reports.finances");
+    expect(prepared).toBeUndefined();
+    expect(required).toBe(true);
+    await execute("reports.present");
+    await execute("records.edit");
+    expect(prepared).toBeUndefined();
+    expect(required).toBe(false);
+  } finally {
+    await client.close();
+    await server.stop(true);
+  }
+});
+
 test("MCP wire inspection preserves the response and excludes auth credentials", async () => {
   const originalEnv = { ...process.env };
   const { connectMcp } = await import("../../src/lib/lifeor/mcp");

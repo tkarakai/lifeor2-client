@@ -272,7 +272,7 @@ export async function adapter(
             typeof normalized.answer === "string"
           )
             finishReport?.(normalized.answer);
-          if (!result.isError && tool.annotations?.readOnlyHint === false) {
+          if (!result.isError && !reading) {
             requirePresentation?.(false);
             finishReport?.(undefined);
           }
@@ -282,8 +282,12 @@ export async function adapter(
             typeof normalized === "object" &&
             "reportId" in normalized &&
             typeof normalized.reportId === "string"
-          )
+          ) {
+            // A later report in the same tool batch must be considered before
+            // finalizing an answer that was prepared earlier in that batch.
+            finishReport?.(undefined);
             requirePresentation?.(true);
+          }
           const text = pages.save(normalized);
           return {
             content: [{ type: "text", text }],
