@@ -453,3 +453,20 @@ test("clarification finishes directly and blocks a later operation in the same t
   expect(calls).toBe(0);
   expect(JSON.stringify(events)).toContain('clarification');
 });
+
+test("the bounded direct read surface includes the explicit period comparison", async () => {
+  const names = [...Array.from({ length: 10 }, (_, i) => `life.read${i}`), "reports.comparePeriods", "life.extra"];
+  const client = {
+    listTools: async () => ({ tools: names.map(name => ({
+      name,
+      annotations: { readOnlyHint: true },
+      _meta: { "lifeor2/primary": true },
+      inputSchema: { type: "object", properties: { datasetId: { type: "string" } }, required: ["datasetId"] },
+    })) }),
+    setRequestHandler: () => {},
+  } as unknown as Client;
+  const exposed = await adapter(client, (async () => null) as Store, "run", "dataset", new AbortController().signal, () => {});
+  expect(exposed.some(t => t.name === "reports_comparePeriods")).toBe(true);
+  expect(exposed.some(t => t.name === "life_read9")).toBe(true);
+  expect(exposed.some(t => t.name === "life_extra")).toBe(false);
+});

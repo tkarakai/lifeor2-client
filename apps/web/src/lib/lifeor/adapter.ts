@@ -458,7 +458,7 @@ export async function adapter(
         t.annotations?.readOnlyHint === true &&
         t._meta?.["lifeor2/primary"] === true,
     )
-    .slice(0, 10);
+    .slice(0, 11);
   // Prefetch at most two focused edit schemas using the same relevance ranking.
   // This only improves discovery; normal validation, scope and audit still apply.
   const focusedWrites = new Set([
