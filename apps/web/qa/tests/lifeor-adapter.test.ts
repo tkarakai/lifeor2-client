@@ -640,8 +640,9 @@ test("relevant profile reads expose a direct validated schema without widening t
   const dispatched: Record<string, unknown>[] = [];
   const client = {
     listTools: async () => ({ tools: [
-      { name: "details.read", description: "Read a profile birthday, birthplace, preferences or source note.", annotations: { readOnlyHint: true }, inputSchema: { type: "object", properties: { datasetId: { type: "string" }, target: { type: "object" }, query: { type: "string" } }, required: ["datasetId", "target"], additionalProperties: false } },
-      { name: "details.save", description: "Save profile birthday or birthplace.", annotations: { readOnlyHint: false }, inputSchema: { type: "object", properties: {} } },
+      { name: "details.read", description: "Read a current profile birthday, birthplace, preferences or source note.", annotations: { readOnlyHint: true }, inputSchema: { type: "object", properties: { datasetId: { type: "string" }, target: { type: "object" }, query: { type: "string" } }, required: ["datasetId", "target"], additionalProperties: false } },
+      { name: "details.save", description: "Save profile birthday or birthplace.", annotations: { readOnlyHint: false }, inputSchema: { type: "object", properties: { datasetId: { type: "string" } } } },
+      ...Array.from({ length: 4 }, (_, i) => ({ name: `claims.view${i}`, description: "Show all current unpaid invoices and overdue commitments.", annotations: { readOnlyHint: true }, inputSchema: { type: "object", properties: { datasetId: { type: "string" } } } })),
     ] }),
     setRequestHandler: () => {},
     callTool: async (call: { arguments: Record<string, unknown> }) => { dispatched.push(call.arguments); return { structuredContent: { items: [], queryComplete: true } }; },
@@ -655,4 +656,6 @@ test("relevant profile reads expose a direct validated schema without widening t
   expect(dispatched).toEqual([{ datasetId: "dataset", target: { kind: "entity", id: "person" }, query: "birthday" }]);
   const unrelated = await adapter(...args, "Show upcoming mortgage payments");
   expect(unrelated.some(t => t.name === "details_read")).toBe(false);
+  const invoices = await adapter(...args, "Show all current unpaid invoices");
+  expect(invoices.some(t => t.name === "details_read")).toBe(false); // Better matching domain reads win over a generic shared word.
 });
