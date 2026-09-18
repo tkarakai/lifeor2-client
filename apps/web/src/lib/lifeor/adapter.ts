@@ -123,7 +123,7 @@ export async function adapter(
   const pages = new ResultPages();
   const discoveries = new Map<string, number>();
   const reads = new Map<string, number>();
-  return [
+  const exposed: AgentTool[] = [
     {
       name: "find_tools",
       label: "Find LifeOR2 tools",
@@ -144,6 +144,7 @@ export async function adapter(
           );
           return {
             name: t.name,
+            invocation: { tool: "call_tool", name: t.name, arguments: "Supply the fields from inputSchema inside arguments." },
             description: t.description,
             inputSchema: schema,
             annotations: t.annotations,
@@ -171,7 +172,7 @@ export async function adapter(
       name: "call_tool",
       label: "Use LifeOR2",
       description:
-        "Execute an exact tool from find_tools with its arguments. Read current records before editing and preserve expectedRevision/expectedCommit. Never guess identities, amounts, currencies or dates. Permanent deletion will pause for the human. Changes already committed cannot be undone by stopping.",
+        "Execute a discovered MCP operation: call_tool({name: 'exact.dottedName', arguments: {...}}). A discovered MCP name is not itself a native tool. Read current records before editing and preserve expectedRevision/expectedCommit. Never guess identities, amounts, currencies or dates. Permanent deletion pauses for the human. Stopping does not undo committed changes.",
       parameters: Type.Object({
         name: Type.String(),
         arguments: Type.Record(Type.String(), Type.Unknown()),
@@ -202,10 +203,23 @@ export async function adapter(
             content: [
               {
                 type: "text",
-                text: `Invalid arguments. No operation executed. ${ajv.errorsText(validate.errors)}`,
+                text: JSON.stringify({
+                  isError: true,
+                  code: "INVALID_ARGUMENTS",
+                  operation: tool.name,
+                  executed: false,
+                  issues: validate.errors?.map((error) => ({
+                    path: error.instancePath,
+                    rule: error.keyword,
+                    message: error.message,
+                    expected: error.params,
+                  })),
+                  next: "Correct the listed argument fields and retry this operation. No operation was executed.",
+                }),
               },
             ],
-            details: {},
+            isError: true,
+            details: { isError: true },
           };
         const reading = tool.annotations?.readOnlyHint === true;
         const readCount = (reads.get(key) ?? 0) + 1;
@@ -295,4 +309,36 @@ export async function adapter(
       },
     },
   ];
+  // The server selects a small task-oriented entry surface. Keep the discovered
+  // schema authoritative; these wrappers use the same validated/audited path.
+  const call = exposed.find((t) => t.name === "call_tool")!;
+  const primary = tools
+    .filter(
+      (t) =>
+        t.annotations?.readOnlyHint === true &&
+        t._meta?.["lifeor2/primary"] === true,
+    )
+    .slice(0, 4);
+  for (const tool of primary) {
+    const schema = structuredClone(tool.inputSchema);
+    delete schema.properties?.datasetId;
+    delete schema.properties?.requestKey;
+    schema.required = schema.required?.filter(
+      (k) => k !== "datasetId" && k !== "requestKey",
+    );
+    exposed.push({
+      name: tool.name.replace(/\./g, "_"),
+      label: tool.title ?? tool.name,
+      description: tool.description ?? tool.name,
+      parameters: schema as AgentTool["parameters"],
+      execute: (id, args, signal, update) =>
+        call.execute(
+          id,
+          { name: tool.name, arguments: args },
+          signal,
+          update,
+        ),
+    });
+  }
+  return exposed;
 }

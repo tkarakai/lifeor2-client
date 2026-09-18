@@ -32,6 +32,7 @@ const models = option(
   "gemma-3-12b-it-8bit,gemma-4-12B-it-8bit,Qwen3.8-27B-4bit,Qwen3.8-27B-8bit",
 ).split(",");
 const decimalAmounts = option("decimal-amounts", "true") === "true";
+const primaryTools = option("primary-tools", "true") === "true";
 const windows = option("windows", "16384,32768").split(",").map(Number);
 const output = option("output", "../../.eval-results/agent-evals.jsonl");
 const catalog = JSON.parse(
@@ -43,6 +44,7 @@ const catalog = JSON.parse(
   name: string;
   description: string;
   kind: string;
+  primary?: boolean;
   inputSchema: Record<string, unknown>;
 }[];
 const cases = [
@@ -160,6 +162,7 @@ for (const model of models)
                 description: t.description,
                 inputSchema: fromJsonSchema(t.inputSchema),
                 annotations: { readOnlyHint: t.kind === "query" },
+                ...(primaryTools && t.primary ? { _meta: { "lifeor2/primary": true } } : {}),
               },
               async (raw) => {
                 const a = raw as Record<string, unknown>;
@@ -422,6 +425,21 @@ for (const model of models)
                   answer,
                 )
               : expectedNumbers.every((n) => numbers.includes(n)),
+        sourcesCited:
+          ["ambiguous", "interrupted-pagination", "net-pay", "no-data"].includes(
+            id,
+          ) ||
+          summary.currencies.every((c) =>
+            c.months.every((m) =>
+              m.journalIds.every((source) => answer.includes(source)),
+            ),
+          ),
+        noInventedEmptyAverage:
+          id !== "no-data" ||
+          !/\baverage\b[^\n]*\b0(?:\.0+)?\b/i.test(answer),
+        noGlobalNetPayClaim:
+          id !== "net-pay" ||
+          !/(?:system|database|dataset)\s+(?:does not|doesn't|doesn’t|cannot|can't|can’t)\s+(?:record|provide|contain|calculate|track)[^\n]*(?:net|deduction)/i.test(answer),
         coverage:
           id !== "missing-month" ||
           /missing|no .*record|not .*zero|incomplete/i.test(answer),
@@ -459,7 +477,8 @@ for (const model of models)
         outputTokens: Number(process.env.LLM_MAX_OUTPUT_TOKENS),
         compactTo: Number(process.env.LLM_COMPACT_TO_PERCENT),
         decimalAmounts,
-        promptRevision: "grounded-v3",
+        promptRevision: "focused-v4",
+        primaryTools,
         case: id,
         decisions,
         elapsedMs: Date.now() - start,

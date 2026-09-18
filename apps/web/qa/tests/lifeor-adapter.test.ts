@@ -27,6 +27,7 @@ test("real MCP v2 adapter persists stable write keys and waits for an explicit c
         {
           description: "Read current records",
           annotations: { readOnlyHint: true },
+          _meta: { "lifeor2/primary": true },
           inputSchema: fromJsonSchema({
             type: "object",
             properties: { datasetId: { type: "string" } },
@@ -48,6 +49,7 @@ test("real MCP v2 adapter persists stable write keys and waits for an explicit c
         "records.edit",
         {
           description: "Edit current records",
+          _meta: { "lifeor2/primary": true },
           inputSchema: fromJsonSchema({
             type: "object",
             properties: {
@@ -174,6 +176,13 @@ test("real MCP v2 adapter persists stable write keys and waits for an explicit c
         () => {},
       ),
       call = tools.find((t) => t.name === "call_tool")!;
+    const direct = tools.find((t) => t.name === "records_read")!;
+    expect(direct).toBeDefined();
+    expect(JSON.stringify(direct.parameters)).not.toContain("datasetId");
+    expect(tools.some((t) => t.name === "records_edit")).toBe(false);
+    await expect(
+      direct.execute("cross-dataset-read", { datasetId: "other" }),
+    ).rejects.toThrow("DATASET_DENIED");
     const args = { name: "records.edit", arguments: { expectedRevision: 3 } };
     const read = { name: "records.read", arguments: {} };
     await call.execute("read-before-1", read);
@@ -188,7 +197,13 @@ test("real MCP v2 adapter persists stable write keys and waits for an explicit c
     expect(received[0].datasetId).toBe("dataset-a");
     expect(received[0].requestKey).toBe(received[1].requestKey);
     expect(received[0].expectedRevision).toBe(3);
-    await call.execute("invalid", { name: "records.edit", arguments: {} });
+    const invalid = await call.execute("invalid", {
+      name: "records.edit",
+      arguments: {},
+    });
+    expect(JSON.stringify(invalid.content)).toContain("INVALID_ARGUMENTS");
+    expect(JSON.stringify(invalid.content)).toContain("expectedRevision");
+    expect(invalid.details).toEqual({ isError: true });
     expect(received.length).toBe(2);
     await expect(
       call.execute("cross-dataset", {
@@ -207,6 +222,13 @@ test("real MCP v2 adapter persists stable write keys and waits for an explicit c
       arguments: {},
     });
     expect(commits).toBe(1);
+    const directResult = await direct.execute("direct-verify", {});
+    expect(JSON.stringify(directResult.content)).toContain("revision");
+    expect(
+      events.some(
+        (e) => e.type === "operation" && String(e.data).includes("records.read"),
+      ),
+    ).toBe(true);
     expect(events.some((e) => e.type === "decision")).toBe(true);
     expect(confirmation?.arguments).toContain("dataset-a");
   } finally {

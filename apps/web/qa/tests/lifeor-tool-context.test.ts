@@ -63,6 +63,15 @@ test("earnings and people discovery prioritize relevant read operations", () => 
     "agentQueries.incomeSummary",
   );
   expect(rankTools(tools, "family members")[0].name).toBe("entities.search");
+  for (const query of [
+    "agentQueries.incomeSummary",
+    "agentQueries_incomeSummary",
+    "agent_queries_income_summary",
+  ]) {
+    expect(rankTools(tools, query).map((t) => t.name)).toEqual([
+      "agentQueries.incomeSummary",
+    ]);
+  }
 });
 
 test("normalization retains MCP failure status in model-visible data", () => {

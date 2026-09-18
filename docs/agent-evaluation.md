@@ -51,11 +51,13 @@ Queries use owner/dataset isolation and a date index. Named-dataset identity sea
 
 ## Companion server changes
 
-The client improvements work with existing MCP servers; grounded monthly aggregation requires the new server read tools. The sibling `lifeor2` worktree already contained an uncommitted MCP implementation when this task started. To preserve that work, this PR includes [only this task's server delta](patches/lifeor2-financial-queries.patch), relative to that MCP implementation, rather than committing unrelated server changes.
+The complete MCP foundation, financial read tools and focused model contract are now committed in [LifeOR2 server PR #1](https://github.com/tkarakai/lifeor2/pull/1). Use that server branch for the companion implementation. The [earlier server delta](patches/lifeor2-financial-queries.patch) is retained as historical evidence of the financial-query changes; it predates the focused primary-tool metadata and is not the complete server implementation.
 
-The delta is already applied and deployed to the local server. For another checkout with the same MCP foundation, run `git apply --check <path-to-patch>` before applying it, then `bun run mcp:catalog`, `bun run mcp:check`, `bun run typecheck`, and `bun run test -- --maxWorkers=1 --testTimeout=30000`. Deploy Convex functions/schema and the server web app together. The patch is not intended for the older server main branch without its MCP prerequisites.
+On the server branch, run `bun run mcp:check`, `bun run typecheck`, and `bun run test -- --maxWorkers=1 --testTimeout=30000`. Deploy Convex functions/schema and the server web app together. Do not apply the historical patch on top of that branch: its changes are already included.
 
 The additive date index and three read operations do not modify existing financial records. Existing grants with `data:read` gain these read capabilities subject to their existing owner/dataset restrictions.
+
+The later [focused-tool investigation](focused-tool-contract.md) documents native Pi entry tools, exact-name discovery, argument repair, empty-result handling and the final Gemma evaluation. It supplements the baseline comparisons below; it does not change the operator's selected model configuration.
 
 ## Investigation: why the earlier conversation stalled
 

@@ -23,7 +23,15 @@ export function rankTools<T extends CatalogTool>(
   tools: T[],
   query: string,
 ): T[] {
-  const words = query.toLowerCase().split(/\W+/).filter(Boolean);
+  const compactName = (name: string) =>
+    name.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  const exact = tools.filter((t) => compactName(t.name) === compactName(query));
+  if (exact.length === 1) return exact;
+  const words = query
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[\W_]+/)
+    .filter(Boolean);
   const expanded = [
     ...new Set(
       words.flatMap((w) => [
