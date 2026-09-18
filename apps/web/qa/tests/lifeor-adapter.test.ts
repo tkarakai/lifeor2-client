@@ -237,6 +237,70 @@ test("real MCP v2 adapter persists stable write keys and waits for an explicit c
   }
 });
 
+test("later reports and successful writes invalidate an earlier prepared answer", async () => {
+  const handler = createMcpHandler(() => {
+    const mcp = new McpServer({ name: "report-fixture", version: "1" });
+    for (const name of ["reports.finances", "reports.present", "reports.read", "records.edit", "legacy.income", "life.timeline"]) {
+      mcp.registerTool(name, {
+        description: name,
+        annotations: { readOnlyHint: name !== "records.edit" },
+        ...(name === "legacy.income" ? { _meta: { "lifeor2/replacedBy": "reports.finances" } } : {}),
+        inputSchema: fromJsonSchema({
+          type: "object", properties: { datasetId: { type: "string" }, reportId: { type: "string" }, offset: { type: "integer" } },
+          required: ["datasetId"], additionalProperties: false,
+        }),
+      }, async () => {
+        const value = name === "reports.read" ? { reportId: "fresh", rows: ["Remaining category"], nextOffset: null }
+          : name === "life.timeline" ? { reportId: "empty", reportType: "timeline", items: [], matchedCount: 0, itemsComplete: true, queryComplete: true }
+          : name === "reports.finances" ? { reportId: "fresh" }
+          : name === "reports.present" ? { answer: "Verified facts", reportIds: ["fresh"] } : { saved: true };
+        return { resultType: "complete", structuredContent: value,
+          content: [{ type: "text", text: JSON.stringify(value) }] };
+      });
+    }
+    return mcp;
+  }, { legacy: "reject", responseMode: "json" });
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: r => handler.fetch(r) });
+  const client = new Client({ name: "report-client", version: "1" }, {
+    versionNegotiation: { mode: { pin: "2026-07-28" } },
+    capabilities: { elicitation: { form: {} } },
+  });
+  let prepared: string | undefined;
+  let required = false;
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${server.port}`)));
+    const tools = await adapter(client, (async () => null) as Store, "run", "dataset",
+      new AbortController().signal, () => {}, value => { prepared = value; }, value => { required = value; });
+    const call = tools.find(t => t.name === "call_tool")!;
+    const execute = (name: string) => call.execute(name, { name, arguments: {} });
+    await execute("life.timeline");
+    expect(required).toBe(false);
+    const unknown = await execute("legacy.income");
+    expect(JSON.stringify(unknown.content)).toContain("UNKNOWN_TOOL");
+    const found = await tools.find(t => t.name === "find_tools")!.execute("discover", { query: "legacy.income" });
+    expect(JSON.stringify(found.content)).not.toContain('"name":"legacy.income"');
+    await execute("reports.finances");
+    expect(required).toBe(true);
+    const page = await tools.find(t => t.name === "read_result")!.execute("page", { resultId: "fresh", path: "/rows", offset: 8 });
+    expect(JSON.stringify(page.content)).toContain("Remaining category");
+    const presented = await execute("reports.present");
+    expect(prepared).toBe("Verified facts");
+    expect(JSON.stringify(presented.content)).toContain("fresh");
+    expect(JSON.stringify(presented.content)).toContain("snapshot");
+    expect(JSON.stringify(presented.content)).not.toContain("Verified facts");
+    await execute("reports.finances");
+    expect(prepared).toBeUndefined();
+    expect(required).toBe(true);
+    await execute("reports.present");
+    await execute("records.edit");
+    expect(prepared).toBeUndefined();
+    expect(required).toBe(false);
+  } finally {
+    await client.close();
+    await server.stop(true);
+  }
+});
+
 test("MCP wire inspection preserves the response and excludes auth credentials", async () => {
   const originalEnv = { ...process.env };
   const { connectMcp } = await import("../../src/lib/lifeor/mcp");
@@ -326,4 +390,324 @@ test("MCP wire inspection preserves the response and excludes auth credentials",
     server.stop(true);
     process.env = originalEnv;
   }
+});
+
+test("expense payment accounts require an original user reference even when records suggest one", async () => {
+  let writes = 0;
+  const handler = createMcpHandler(() => {
+    const server = new McpServer({ name: "payment-fixture", version: "1" });
+    for (const name of ["life.read", "records.recordExpense"]) {
+      const reading = name === "life.read";
+      server.registerTool(name, {
+        description: name,
+        annotations: { readOnlyHint: reading },
+        inputSchema: fromJsonSchema({ type: "object", properties: {
+          datasetId: { type: "string" },
+          ...(reading ? { kind: { type: "string" }, id: { type: "string" } } : { paidFromAccountId: { type: "string" }, expenseAccountId: { type: "string" }, requestKey: { type: "string" } }),
+        }, required: reading ? ["datasetId", "kind", "id"] : ["datasetId", "paidFromAccountId", "expenseAccountId", "requestKey"], additionalProperties: false }),
+      }, async (args) => {
+        if (!reading) writes++;
+        const result = reading ? { record: { _id: args.id, name: args.id === "cash" ? "Ellis checking" : "Ellis groceries" } } : { saved: true };
+        return { resultType: "complete", content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      });
+    }
+    return server;
+  }, { legacy: "reject", responseMode: "json" });
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: r => handler.fetch(r) });
+  const client = new Client({ name: "fixture", version: "1" }, {
+    versionNegotiation: { mode: { pin: "2026-07-28" } }, capabilities: { elicitation: { form: {} } },
+  });
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${server.port}`)));
+    const store: Store = async <T>() => null as T;
+    for (const [question, prior, allowed] of [
+      ["Record a $50 grocery expense", [], false],
+      ["Record a $50 expense from Ellis checking", [], false],
+      ["Record a $50 grocery expense from Ellis checking", [], true],
+      ["Record another $50 grocery expense", ["Use Ellis checking for this receipt"], true],
+    ] as const) {
+      const list = await adapter(client, store, `run-${writes}`, "dataset", new AbortController().signal, () => {}, undefined, undefined, question, [...prior]);
+      const call = list.find(t => t.name === "call_tool")!;
+      // Verification can reuse an already-read identity rather than trip the read-loop guard.
+      for (let i = 0; i < 2; i++) await call.execute(`read-${i}`, { name: "life.read", arguments: { kind: "ledger_account", id: "cash" } });
+      const before = writes;
+      const result = await call.execute("expense", { name: "records.recordExpense", arguments: { paidFromAccountId: "cash", expenseAccountId: "food" } });
+      expect(writes - before).toBe(allowed ? 1 : 0);
+      if (!allowed) expect(JSON.stringify(result.content)).toContain("_REQUIRED");
+    }
+  } finally { await client.close(); await server.stop(true); }
+});
+
+test("clarification finishes directly and blocks a later operation in the same tool batch", async () => {
+  let calls = 0;
+  let final: string | undefined;
+  const events: unknown[] = [];
+  const client = {
+    listTools: async () => ({ tools: [{ name: "records.edit", inputSchema: { type: "object", properties: { datasetId: { type: "string" } }, required: ["datasetId"] } }] }),
+    setRequestHandler: () => {},
+    callTool: async () => { calls++; return {}; },
+  } as unknown as Client;
+  const store = (async (_op: string, args: unknown) => { events.push(args); return null; }) as Store;
+  const tools = await adapter(client, store, "run", "dataset", new AbortController().signal, () => {}, text => { final = text; });
+  await tools.find(t => t.name === "ask_user")!.execute("ask", { question: "Which payment account should I use?" });
+  expect(final).toBe("Which payment account should I use?");
+  const blocked = await tools.find(t => t.name === "call_tool")!.execute("late", { name: "records.edit", arguments: {} });
+  expect(blocked.details).toEqual({ isError: true });
+  expect(calls).toBe(0);
+  expect(JSON.stringify(events)).toContain('clarification');
+});
+
+test("the bounded direct read surface includes current debt and period comparison", async () => {
+  const names = [...Array.from({ length: 10 }, (_, i) => `life.read${i}`), "reports.comparePeriods", "life.obligations", "life.extra"];
+  const client = {
+    listTools: async () => ({ tools: names.map(name => ({
+      name,
+      annotations: { readOnlyHint: true },
+      _meta: { "lifeor2/primary": true },
+      inputSchema: { type: "object", properties: { datasetId: { type: "string" } }, required: ["datasetId"] },
+    })) }),
+    setRequestHandler: () => {},
+  } as unknown as Client;
+  const exposed = await adapter(client, (async () => null) as Store, "run", "dataset", new AbortController().signal, () => {});
+  expect(exposed.some(t => t.name === "reports_comparePeriods")).toBe(true);
+  expect(exposed.some(t => t.name === "life_read9")).toBe(true);
+  expect(exposed.some(t => t.name === "life_obligations")).toBe(true);
+  expect(exposed.some(t => t.name === "life_extra")).toBe(false);
+});
+
+test("server-computed clock choices finish verbatim and block a later write", async () => {
+  let calls = 0;
+  let final: string | undefined;
+  const question = "2026-11-01 at 01:30 occurs twice in America/Chicago. First occurrence (UTC−05:00) or second occurrence (UTC−06:00)?";
+  const client = {
+    listTools: async () => ({ tools: ["records.rescheduleEvent", "records.edit"].map(name => ({ name, inputSchema: { type: "object", properties: { datasetId: { type: "string" } }, required: ["datasetId"] } })) }),
+    setRequestHandler: () => {},
+    callTool: async () => { calls++; return { structuredContent: { status: "needs_input", kind: "ambiguous_local_time", question, choices: [{ utcOffsetMinutes: -300 }, { utcOffsetMinutes: -360 }] } }; },
+  } as unknown as Client;
+  const tools = await adapter(client, (async () => null) as Store, "run", "dataset", new AbortController().signal, () => {}, text => { final = text; });
+  const call = tools.find(t => t.name === "call_tool")!;
+  await call.execute("clock", { name: "records.rescheduleEvent", arguments: {} });
+  expect(final).toBe(question);
+  expect((await call.execute("late", { name: "records.edit", arguments: {} })).details).toEqual({ isError: true });
+  expect(calls).toBe(1);
+});
+
+test("a write requires fresh queried reports, not a reread of an old saved snapshot", async () => {
+  let query = 0;
+  const presented: unknown[] = [];
+  const names = ["reports.finances", "reports.read", "reports.present", "records.edit"];
+  const client = {
+    listTools: async () => ({ tools: names.map(name => ({ name, annotations: {readOnlyHint:name!=="records.edit"}, inputSchema: { type:"object",properties:{datasetId:{type:"string"},reportIds:{type:"array",items:{type:"string"}}},required:["datasetId"] } })) }),
+    setRequestHandler: () => {},
+    callTool: async (call: {name:string;arguments:Record<string,unknown>}) => {
+      if (call.name === "reports.finances") return {structuredContent:{reportId:`report-${++query}`}};
+      if (call.name === "reports.read") return {structuredContent:{reportId:"report-1"}};
+      if (call.name === "reports.present") { presented.push(call.arguments.reportIds); return {structuredContent:{answer:"Current evidence"}}; }
+      return {structuredContent:{saved:true}};
+    },
+  } as unknown as Client;
+  let answer: string | undefined;
+  const tools = await adapter(client,(async()=>null) as Store,"run","dataset",new AbortController().signal,()=>{},text=>{answer=text;});
+  const call = tools.find(t=>t.name==="call_tool")!;
+  const run = (name:string,arguments_:Record<string,unknown>={}) => call.execute(name,{name,arguments:arguments_});
+  await run("reports.finances");
+  await run("records.edit");
+  expect(JSON.stringify((await run("reports.present",{reportIds:["report-1"]})).content)).toContain("STALE_REPORT_AFTER_WRITE");
+  await run("reports.read");
+  expect((await run("reports.present",{reportIds:["report-1"]})).details).toEqual({isError:true});
+  expect(presented).toEqual([]);
+  await run("reports.finances");
+  await run("reports.present",{reportIds:["report-2"]});
+  expect(presented).toEqual([["report-2"]]);
+  expect(answer).toBe("Current evidence");
+});
+
+test("a hypothetical movement asks for its account instead of inventing an allocation", async () => {
+  let projections = 0;
+  const client = {
+    listTools: async () => ({
+      tools: ["life.read", "reports.cashProjection"].map(name => ({
+        name, annotations: { readOnlyHint: true },
+        inputSchema: {
+          type: "object",
+          properties: {
+            datasetId: { type: "string" }, kind: { type: "string" }, id: { type: "string" },
+            additionalMovements: {
+              type: "array", items: {
+                type: "object", properties: {
+                  accountId: { type: "string" }, date: { type: "string" }, amount: { type: "string" },
+                },
+              },
+            },
+          },
+          required: ["datasetId"],
+        },
+      })),
+    }),
+    setRequestHandler:()=>{},
+    callTool:async (call:{name:string})=>{
+      if(call.name==="life.read")return {structuredContent:{record:{_id:"cash",name:"Household bills checking · 1042"}}};
+      projections++;return {structuredContent:{reportId:"scenario"}};
+    },
+  } as unknown as Client;
+  for (const [question,prior,allowed] of [
+    ["What if we spent an extra $10000 from household checking?",[],false],
+    ["What if we spent an extra $10000 from Household bills checking · 1042?",[],true],
+    ["Use it for that hypothetical expense.",["Use Household bills checking · 1042"],true],
+  ] as const) {
+    let answer:string|undefined;
+    const tools=await adapter(client,(async()=>null) as Store,"run","dataset",new AbortController().signal,()=>{},text=>{answer=text;},undefined,question,[...prior]);
+    const call=tools.find(t=>t.name==="call_tool")!;
+    const before=projections;
+    await call.execute("scenario",{name:"reports.cashProjection",arguments:{additionalMovements:[{accountId:"cash",date:"2026-10-10",amount:"-10000"}]}});
+    expect(projections-before).toBe(allowed?1:0);
+    if(!allowed){
+      expect(answer).toBe("Which account should the hypothetical one-off payment or receipt affect?");
+      expect((await call.execute("late",{name:"reports.cashProjection",arguments:{}})).details).toEqual({isError:true});
+      expect(projections).toBe(before);
+    }
+  }
+});
+
+
+for (const target of ["scenario", "payment", "category"] as const) {
+  test(`an unresolved ${target} account can recover without asking for an already supplied choice`, async () => {
+    const completed: string[] = [];
+    let answer: string | undefined;
+    const client = {
+      listTools: async () => ({ tools: ["life.read", "records.recordExpense", "reports.cashProjection"].map(name => ({
+        name, annotations: { readOnlyHint: name !== "records.recordExpense" },
+        inputSchema: { type: "object", properties: {
+          datasetId: { type: "string" }, kind: { type: "string" }, id: { type: "string" },
+          paidFromAccountId: { type: "string" }, expenseAccountId: { type: "string" },
+          additionalMovements: { type: "array", items: { type: "object" } },
+        }, required: ["datasetId"] },
+      })) }),
+      setRequestHandler: () => {},
+      callTool: async (call: { name: string; arguments: Record<string, unknown> }) => {
+        if (call.name === "life.read") {
+          const id = call.arguments.id;
+          if (id === "1042" || id === "groceries") return { isError: true, content: [{ type: "text", text: "Invalid record ID" }] };
+          return { structuredContent: { record: { _id: id, name: id === "cash" ? "Household bills checking · 1042" : "Groceries" } } };
+        }
+        completed.push(call.name);
+        return { structuredContent: { saved: true } };
+      },
+    } as unknown as Client;
+    const tools = await adapter(client, (async () => null) as Store, "run", "dataset", new AbortController().signal, () => {}, text => { answer = text; }, undefined,
+      "Use Household bills checking · 1042 for this groceries expense or hypothetical movement.");
+    const call = tools.find(t => t.name === "call_tool")!;
+    const name = target === "scenario" ? "reports.cashProjection" : "records.recordExpense";
+    const args = (resolved: boolean) => target === "scenario"
+      ? { additionalMovements: [{ accountId: resolved ? "cash" : "1042", date: "2026-10-10", amount: "-10000" }] }
+      : { paidFromAccountId: target === "payment" && !resolved ? "1042" : "cash", expenseAccountId: target === "category" && !resolved ? "groceries" : "category" };
+    const failed = await call.execute("bad-reference", { name, arguments: args(false) });
+    expect(JSON.stringify(failed.content)).toContain("ACCOUNT_REFERENCE_UNRESOLVED");
+    expect(answer).toBeUndefined();
+    expect(completed).toEqual([]);
+    const recovered = await call.execute("resolved-reference", { name, arguments: args(true) });
+    expect(recovered.details).not.toEqual({ isError: true });
+    expect(completed).toEqual([name]);
+  });
+}
+
+test("verified presentation can state insufficient evidence without allowing invented conclusions", async () => {
+  let answer: string | undefined;
+  const dispatched: Record<string, unknown>[] = [];
+  const client = {
+    listTools: async () => ({ tools: [{ name: "reports.present", annotations: { readOnlyHint: true }, inputSchema: {
+      type: "object", properties: { datasetId: { type: "string" }, reportIds: { type: "array", items: { type: "string" } }, conclusion: { type: "string", enum: ["insufficient_evidence"] } }, required: ["datasetId", "reportIds"], additionalProperties: false,
+    } }] }),
+    setRequestHandler: () => {},
+    callTool: async (call: { arguments: Record<string, unknown> }) => {
+      dispatched.push(call.arguments);
+      return { structuredContent: { answer: "The retrieved evidence does not establish the requested fact. Recorded birth date: February 12, 1990.", reportIds: ["source"] } };
+    },
+  } as unknown as Client;
+  const tools = await adapter(client, (async () => null) as Store, "run", "dataset", new AbortController().signal, () => {}, text => { answer = text; });
+  const present = tools.find(t => t.name === "present_report")!;
+  expect(JSON.stringify(present.parameters)).toContain("insufficient_evidence");
+  await present.execute("supported", { reportIds: ["source"], conclusion: "insufficient_evidence" });
+  expect(answer).toContain("does not establish");
+  expect(dispatched).toEqual([{ datasetId: "dataset", reportIds: ["source"], conclusion: "insufficient_evidence" }]);
+  const rejected = await present.execute("invented", { reportIds: ["source"], conclusion: "Born in Chicago" });
+  expect(rejected.details).toEqual({ isError: true });
+  expect(dispatched).toHaveLength(1);
+});
+
+
+test("relevant profile reads expose a direct validated schema without widening the write surface", async () => {
+  const dispatched: Record<string, unknown>[] = [];
+  const client = {
+    listTools: async () => ({ tools: [
+      { name: "details.read", description: "Read a current profile birthday, birthplace, preferences or source note.", annotations: { readOnlyHint: true }, inputSchema: { type: "object", properties: { datasetId: { type: "string" }, target: { type: "object" }, query: { type: "string" } }, required: ["datasetId", "target"], additionalProperties: false } },
+      { name: "details.save", description: "Save profile birthday or birthplace.", annotations: { readOnlyHint: false }, inputSchema: { type: "object", properties: { datasetId: { type: "string" } } } },
+      ...Array.from({ length: 4 }, (_, i) => ({ name: `claims.view${i}`, description: "Show all current unpaid invoices and overdue commitments.", annotations: { readOnlyHint: true }, inputSchema: { type: "object", properties: { datasetId: { type: "string" } } } })),
+    ] }),
+    setRequestHandler: () => {},
+    callTool: async (call: { arguments: Record<string, unknown> }) => { dispatched.push(call.arguments); return { structuredContent: { items: [], queryComplete: true } }; },
+  } as unknown as Client;
+  const args = [client, (async () => null) as Store, "run", "dataset", new AbortController().signal, () => {}, undefined, undefined] as const;
+  const tools = await adapter(...args, "When is this person's birthday?");
+  expect(tools.some(t => t.name === "details_save")).toBe(false);
+  const read = tools.find(t => t.name === "details_read")!;
+  expect(read.parameters.properties).not.toHaveProperty("datasetId");
+  await read.execute("direct", { target: { kind: "entity", id: "person" }, query: "birthday" });
+  expect(dispatched).toEqual([{ datasetId: "dataset", target: { kind: "entity", id: "person" }, query: "birthday" }]);
+  const unrelated = await adapter(...args, "Show upcoming mortgage payments");
+  expect(unrelated.some(t => t.name === "details_read")).toBe(false);
+  const invoices = await adapter(...args, "Show all current unpaid invoices");
+  expect(invoices.some(t => t.name === "details_read")).toBe(false); // Better matching domain reads win over a generic shared word.
+});
+
+test("missing calendar scope finishes as the exact service clarification and blocks guessed writes", async () => {
+  let calls = 0;
+  let final: string | undefined;
+  const question = "Which household and timezone should I use? Neither is configured.";
+  const client = {
+    listTools: async () => ({ tools: ["life.timeline", "records.recordEvent"].map(name => ({ name, annotations: { readOnlyHint: name === "life.timeline" }, inputSchema: { type: "object", properties: { datasetId: { type: "string" } }, required: ["datasetId"] } })) }),
+    setRequestHandler: () => {},
+    callTool: async () => { calls++; return { structuredContent: { status: "needs_input", kind: "workspace_scope", question, executed: false } }; },
+  } as unknown as Client;
+  const tools = await adapter(client, (async () => null) as Store, "run", "dataset", new AbortController().signal, () => {}, text => { final = text; });
+  const call = tools.find(t => t.name === "call_tool")!;
+  await call.execute("scope", { name: "life.timeline", arguments: {} });
+  expect(final).toBe(question);
+  expect((await call.execute("guess", { name: "records.recordEvent", arguments: {} })).details).toEqual({ isError: true });
+  expect(calls).toBe(1);
+});
+
+test("calendar receipt stays fresh after its write and storage failure preserves the committed answer", async () => {
+  let required = false;
+  let final: string | undefined;
+  let saved = true;
+  const client = {
+    listTools: async () => ({ tools: ["records.recordEvent", "reports.present"].map(name => ({ name, annotations: { readOnlyHint: name === "reports.present" }, inputSchema: { type: "object", properties: { datasetId: { type: "string" }, reportIds: { type: "array", items: { type: "string" } } }, required: ["datasetId"] } })) }),
+    setRequestHandler: () => {},
+    callTool: async (call: { name: string }) => ({ structuredContent: call.name === "reports.present" ? { answer: "Verified Saturday appointment" } : saved ? { status: "recorded", id: "event", reportId: "receipt", reportType: "event_change" } : { status: "recorded", id: "event2", reportUnavailable: true, committedAnswer: "Verified committed appointment despite storage failure" } }),
+  } as unknown as Client;
+  const tools = await adapter(client, (async () => null) as Store, "run", "dataset", new AbortController().signal, () => {}, text => { final = text; }, value => { required = value; });
+  const call = tools.find(t => t.name === "call_tool")!;
+  await call.execute("write", { name: "records.recordEvent", arguments: {} });
+  expect(required).toBe(true);
+  await call.execute("confirm", { name: "reports.present", arguments: { reportIds: ["receipt"] } });
+  expect(final).toBe("Verified Saturday appointment");
+  saved = false;
+  await call.execute("write2", { name: "records.recordEvent", arguments: {} });
+  expect(final).toBe("Verified committed appointment despite storage failure");
+});
+
+test("a guessed absolute calendar date cannot replace the user's simple relative phrase", async () => {
+  const dispatched: Record<string, unknown>[] = [];
+  const client = {
+    listTools: async () => ({ tools: [{ name: "records.recordEvent", annotations: { readOnlyHint: false }, inputSchema: { type: "object", properties: { datasetId: { type: "string" }, date: { type: "string" }, dateExpression: { type: "string" }, time: { type: "string" }, requestKey: { type: "string" } }, required: ["datasetId", "time", "requestKey"] } }] }),
+    setRequestHandler: () => {},
+    callTool: async (call: { arguments: Record<string, unknown> }) => { dispatched.push(call.arguments); return { structuredContent: { status: "recorded" } }; },
+  } as unknown as Client;
+  const tools = await adapter(client, (async () => null) as Store, "run", "dataset", new AbortController().signal, () => {}, undefined, undefined, "Record a dentist appointment next Tuesday at 3 PM, America/Chicago.");
+  await tools.find(t => t.name === "call_tool")!.execute("create", { name: "records.recordEvent", arguments: { date: "2026-09-29", time: "15:00" } });
+  expect(dispatched).toHaveLength(1);
+  expect(dispatched[0]).toMatchObject({ dateExpression: "next tuesday", time: "15:00" });
+  expect(dispatched[0].date).toBeUndefined();
+  expect(dispatched[0].requestKey).toBeTruthy();
 });

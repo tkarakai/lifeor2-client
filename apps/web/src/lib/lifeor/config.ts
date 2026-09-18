@@ -158,6 +158,8 @@ export const errors: Record<string, string> = {
   SESSION_EXPIRED: "Your session has expired. Sign in again to continue.",
   MCP_UNAVAILABLE:
     "LifeOR2 could not be reached. An action may have committed; inspect its outcome before requesting it again.",
+  REPORT_PRESENTATION_REQUIRED:
+    "The report was retrieved, but its verified answer could not be presented. Try asking for that report again.",
   OUTPUT_LIMIT:
     "The model reached its output limit. The response may be incomplete.",
   STORAGE_UNAVAILABLE:
