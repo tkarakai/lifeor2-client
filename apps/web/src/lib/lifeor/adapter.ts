@@ -134,6 +134,14 @@ export async function adapter(
   let recordsChanged = false;
   const freshReportIds = new Set<string>();
   let awaitingClarification = false;
+  const unresolvedAccount = async (operation: string, accountId: string) => {
+    const error = {
+      isError: true, code: "ACCOUNT_REFERENCE_UNRESOLVED", operation, accountId, executed: false,
+      message: "The supplied account reference is not a verified ledger-account ID. Resolve the account already named by the user with life.search(kind=account), then retry with its returned stable ID. An account name or last digits are not a database ID. Ask the user only if their reference is missing or ambiguous. The requested operation was not executed.",
+    };
+    await event("tool_error", "Resolve the supplied account reference", error);
+    return { content: [{ type: "text" as const, text: JSON.stringify(error) }], isError: true, details: { isError: true } };
+  };
   const exposed: AgentTool[] = [
     {
       name: "ask_user",
@@ -274,7 +282,8 @@ export async function adapter(
             if (!accountNames.has(accountId) && tools.some(t => t.name === "life.read"))
               await exposed.find(t => t.name === "call_tool")!.execute(`${_callId}-scenario-account`, { name: "life.read", arguments: { kind: "ledger_account", id: accountId } });
             const name = accountNames.get(accountId);
-            if (!name || !paymentAccountReferenced(name, accountId, [...priorUserPrompts, question ?? ""])) {
+            if (!name) return unresolvedAccount(tool.name, accountId);
+            if (!paymentAccountReferenced(name, accountId, [...priorUserPrompts, question ?? ""])) {
               const clarification = { status: "needs_input", kind: "scenario_account", question: "Which account should the hypothetical one-off payment or receipt affect?", executed: false };
               awaitingClarification = true;
               reportIds = [];
@@ -294,7 +303,8 @@ export async function adapter(
             });
           }
           const name = accountNames.get(accountId);
-          if (!name || !paymentAccountReferenced(name, accountId, [...priorUserPrompts, question ?? ""])) {
+          if (!name) return unresolvedAccount(tool.name, accountId);
+          if (!paymentAccountReferenced(name, accountId, [...priorUserPrompts, question ?? ""])) {
             const error = { isError: true, code: "PAYMENT_ACCOUNT_REQUIRED", executed: false,
               message: "Ask the user which payment account to use. The selected account was not identified in the available original user messages. Database records and model-generated memory do not supply that missing choice. No expense was posted." };
             await event("tool_error", "Payment account needs user input", { tool: tool.name, ...error });
@@ -305,7 +315,8 @@ export async function adapter(
           const categoryId = args.expenseAccountId;
           if (!accountNames.has(categoryId)) await exposed.find(t => t.name === "call_tool")!.execute(`${_callId}-category-reference`, { name: "life.read", arguments: { kind: "ledger_account", id: categoryId } });
           const name = accountNames.get(categoryId);
-          if (!name || !expenseCategoryReferenced(name, categoryId, [...priorUserPrompts, question ?? ""])) {
+          if (!name) return unresolvedAccount(tool.name, categoryId);
+          if (!expenseCategoryReferenced(name, categoryId, [...priorUserPrompts, question ?? ""])) {
             const error = { isError: true, code: "EXPENSE_CATEGORY_REQUIRED", executed: false,
               message: "Ask what the expense was for or which expense category to use. The selected category was not identified in the available original user messages. An account discovered in the database does not supply that missing purpose. No expense was posted." };
             await event("tool_error", "Expense category needs user input", { tool: tool.name, ...error });

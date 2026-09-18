@@ -568,3 +568,45 @@ test("a hypothetical movement asks for its account instead of inventing an alloc
     }
   }
 });
+
+
+for (const target of ["scenario", "payment", "category"] as const) {
+  test(`an unresolved ${target} account can recover without asking for an already supplied choice`, async () => {
+    const completed: string[] = [];
+    let answer: string | undefined;
+    const client = {
+      listTools: async () => ({ tools: ["life.read", "records.recordExpense", "reports.cashProjection"].map(name => ({
+        name, annotations: { readOnlyHint: name !== "records.recordExpense" },
+        inputSchema: { type: "object", properties: {
+          datasetId: { type: "string" }, kind: { type: "string" }, id: { type: "string" },
+          paidFromAccountId: { type: "string" }, expenseAccountId: { type: "string" },
+          additionalMovements: { type: "array", items: { type: "object" } },
+        }, required: ["datasetId"] },
+      })) }),
+      setRequestHandler: () => {},
+      callTool: async (call: { name: string; arguments: Record<string, unknown> }) => {
+        if (call.name === "life.read") {
+          const id = call.arguments.id;
+          if (id === "1042" || id === "groceries") return { isError: true, content: [{ type: "text", text: "Invalid record ID" }] };
+          return { structuredContent: { record: { _id: id, name: id === "cash" ? "Household bills checking · 1042" : "Groceries" } } };
+        }
+        completed.push(call.name);
+        return { structuredContent: { saved: true } };
+      },
+    } as unknown as Client;
+    const tools = await adapter(client, (async () => null) as Store, "run", "dataset", new AbortController().signal, () => {}, text => { answer = text; }, undefined,
+      "Use Household bills checking · 1042 for this groceries expense or hypothetical movement.");
+    const call = tools.find(t => t.name === "call_tool")!;
+    const name = target === "scenario" ? "reports.cashProjection" : "records.recordExpense";
+    const args = (resolved: boolean) => target === "scenario"
+      ? { additionalMovements: [{ accountId: resolved ? "cash" : "1042", date: "2026-10-10", amount: "-10000" }] }
+      : { paidFromAccountId: target === "payment" && !resolved ? "1042" : "cash", expenseAccountId: target === "category" && !resolved ? "groceries" : "category" };
+    const failed = await call.execute("bad-reference", { name, arguments: args(false) });
+    expect(JSON.stringify(failed.content)).toContain("ACCOUNT_REFERENCE_UNRESOLVED");
+    expect(answer).toBeUndefined();
+    expect(completed).toEqual([]);
+    const recovered = await call.execute("resolved-reference", { name, arguments: args(true) });
+    expect(recovered.details).not.toEqual({ isError: true });
+    expect(completed).toEqual([name]);
+  });
+}
