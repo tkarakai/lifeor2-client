@@ -358,7 +358,17 @@ export async function adapter(
             if (!emptyTimeline) reportIds = [...new Set([...reportIds, normalized.reportId])];
             requirePresentation?.(reportIds.length > 0, reportIds);
           }
-          const text = pages.save(normalized);
+          // The verified answer is emitted separately as the assistant message.
+          // Keep its handles here instead of putting a second full copy into
+          // every later model prompt. The audited MCP result above stays intact.
+          const presented = tool.name === "reports.present" && finishReport && !result.isError &&
+            normalized && typeof normalized === "object" && "answer" in normalized && typeof normalized.answer === "string";
+          const text = pages.save(presented ? {
+            presented: true,
+            datasetId,
+            reportIds: "reportIds" in normalized ? normalized.reportIds : args.reportIds ?? [],
+            note: "The verified report is displayed as the assistant answer. These saved snapshot IDs can be inspected or presented again; they are not a fresh query.",
+          } : normalized);
           return {
             content: [{ type: "text", text }],
             isError: !!result.isError,

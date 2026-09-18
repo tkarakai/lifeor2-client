@@ -253,7 +253,7 @@ test("later reports and successful writes invalidate an earlier prepared answer"
         const value = name === "reports.read" ? { reportId: "fresh", rows: ["Remaining category"], nextOffset: null }
           : name === "life.timeline" ? { reportId: "empty", reportType: "timeline", items: [], matchedCount: 0, itemsComplete: true, queryComplete: true }
           : name === "reports.finances" ? { reportId: "fresh" }
-          : name === "reports.present" ? { answer: "Verified facts" } : { saved: true };
+          : name === "reports.present" ? { answer: "Verified facts", reportIds: ["fresh"] } : { saved: true };
         return { resultType: "complete", structuredContent: value,
           content: [{ type: "text", text: JSON.stringify(value) }] };
       });
@@ -283,8 +283,11 @@ test("later reports and successful writes invalidate an earlier prepared answer"
     expect(required).toBe(true);
     const page = await tools.find(t => t.name === "read_result")!.execute("page", { resultId: "fresh", path: "/rows", offset: 8 });
     expect(JSON.stringify(page.content)).toContain("Remaining category");
-    await execute("reports.present");
+    const presented = await execute("reports.present");
     expect(prepared).toBe("Verified facts");
+    expect(JSON.stringify(presented.content)).toContain("fresh");
+    expect(JSON.stringify(presented.content)).toContain("snapshot");
+    expect(JSON.stringify(presented.content)).not.toContain("Verified facts");
     await execute("reports.finances");
     expect(prepared).toBeUndefined();
     expect(required).toBe(true);
