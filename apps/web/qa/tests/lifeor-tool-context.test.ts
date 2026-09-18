@@ -96,3 +96,45 @@ test("wide object field indexes are bounded and pageable", () => {
   }
   expect(fields.map((f: { key: string }) => f.key)).toEqual(Object.keys(value));
 });
+
+test("coming up does not discover update mutations through substring matches", () => {
+  const tools = [
+    {
+      name: "entities.update",
+      description: "Update entity",
+      annotations: { readOnlyHint: false },
+    },
+    {
+      name: "life.timeline",
+      description: "Upcoming events, bills and commitments",
+      annotations: { readOnlyHint: true },
+    },
+    {
+      name: "records.rescheduleEvent",
+      description: "Reschedule an appointment",
+      annotations: { readOnlyHint: false },
+    },
+  ];
+  expect(
+    rankTools(tools, "What's coming up this month?").map((t) => t.name),
+  ).toEqual(["life.timeline"]);
+  expect(rankTools(tools, "reschedule appointment")[0].name).toBe(
+    "records.rescheduleEvent",
+  );
+});
+
+test("oversized report retains its presentation handle and coverage without copying rows", () => {
+  const page = JSON.parse(
+    new ResultPages().save({
+      reportId: "saved-report",
+      queryComplete: true,
+      rows: Array.from({ length: 100 }, () => ({ memo: "x".repeat(1000) })),
+    }),
+  );
+  expect(page.metadata).toEqual({
+    reportId: "saved-report",
+    queryComplete: true,
+  });
+  expect(JSON.stringify(page).length).toBeLessThan(12000);
+  expect(page.fields.some((f: { key: string }) => f.key === "rows")).toBe(true);
+});

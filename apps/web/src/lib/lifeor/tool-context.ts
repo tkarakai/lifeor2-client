@@ -7,31 +7,92 @@ type CatalogTool = {
 };
 const synonyms: Record<string, string[]> = {
   income: ["salary", "earnings", "earns", "payroll"],
-  entities: [
-    "entity",
+  search: ["find", "lookup"],
+  entity: [
+    "entities",
     "people",
     "person",
     "family",
+    "household",
     "members",
     "contacts",
-    "contact",
   ],
-  arrangements: ["relationships", "relationship", "agreements"],
-  finance: ["financial", "money", "transactions"],
+  relationships: ["relationship", "roles", "owns", "ownership", "belongs"],
+  arrangements: [
+    "arrangement",
+    "agreements",
+    "agreement",
+    "contract",
+    "project",
+  ],
+  finances: [
+    "financial",
+    "finance",
+    "money",
+    "transactions",
+    "spending",
+    "spent",
+    "expense",
+    "expenses",
+    "balance",
+    "balances",
+    "cost",
+    "costs",
+    "income",
+  ],
+  timeline: [
+    "upcoming",
+    "coming",
+    "due",
+    "overdue",
+    "calendar",
+    "commitments",
+    "bills",
+    "payments",
+  ],
+  history: ["changes", "changed", "revisions", "previous"],
+  notes: ["documents", "document", "markdown", "notes"],
 };
+const stopwords = new Set([
+  "a",
+  "an",
+  "the",
+  "is",
+  "are",
+  "was",
+  "what",
+  "whats",
+  "s",
+  "my",
+  "our",
+  "this",
+  "that",
+  "for",
+  "of",
+  "in",
+  "on",
+  "to",
+  "and",
+  "up",
+  "me",
+  "it",
+  "with",
+]);
+const wordsOf = (text: string) =>
+  text
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[\W_]+/)
+    .filter((w) => w && !stopwords.has(w));
 export function rankTools<T extends CatalogTool>(
   tools: T[],
   query: string,
 ): T[] {
-  const compactName = (name: string) =>
+  const compact = (name: string) =>
     name.replace(/[^a-z0-9]/gi, "").toLowerCase();
-  const exact = tools.filter((t) => compactName(t.name) === compactName(query));
+  const exact = tools.filter((t) => compact(t.name) === compact(query));
   if (exact.length === 1) return exact;
-  const words = query
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .toLowerCase()
-    .split(/[\W_]+/)
-    .filter(Boolean);
+  const words = wordsOf(query);
   const expanded = [
     ...new Set(
       words.flatMap((w) => [
@@ -43,27 +104,43 @@ export function rankTools<T extends CatalogTool>(
     ),
   ];
   const writing =
-    /\b(create|edit|update|delete|reverse|post|write|remove)\b/i.test(query);
-  return tools
-    .map((t) => {
-      const name = t.name.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
-      const score = expanded.reduce(
-        (n, w) =>
-          n +
-          (name.includes(w) ? 8 : 0) +
-          (t.description?.toLowerCase().includes(w) ? 2 : 0),
-        0,
-      );
-      return {
-        t,
-        score: score
-          ? score + (!writing && t.annotations?.readOnlyHint ? 5 : 0)
-          : 0,
-      };
-    })
+    /\b(create|edit|update|delete|reverse|post|write|remove|archive|restore|save|record|add|change|cancel|reschedule|rename|amend|attach)\b/i.test(
+      query,
+    );
+  // Whole words prevent e.g. "up" matching update. Ordinary questions never
+  // discover writes; exact operation-name lookup remains available for callers.
+  const candidates = tools.filter(
+    (t) => writing || t.annotations?.readOnlyHint !== false,
+  );
+  const normalizeWords = (text: string) =>
+    wordsOf(text).flatMap((w) => [
+      w,
+      ...Object.entries(synonyms)
+        .filter(([, aliases]) => aliases.includes(w))
+        .map(([key]) => key),
+    ]);
+  const corpus = candidates.map((t) => ({
+    t,
+    name: new Set(normalizeWords(t.name)),
+    body: new Set(normalizeWords(t.description ?? "")),
+  }));
+  const frequency = new Map(
+    expanded.map((w) => [
+      w,
+      corpus.filter((d) => d.name.has(w) || d.body.has(w)).length,
+    ]),
+  );
+  return corpus
+    .map((d) => ({
+      t: d.t,
+      score: expanded.reduce((n, w) => {
+        const idf = Math.log(1 + corpus.length / (1 + (frequency.get(w) ?? 0)));
+        return n + idf * (d.name.has(w) ? 8 : d.body.has(w) ? 1 : 0);
+      }, 0),
+    }))
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score || a.t.name.localeCompare(b.t.name))
-    .slice(0, 6)
+    .slice(0, 4)
     .map((x) => x.t);
 }
 export function normalizeResult(result: {
@@ -187,9 +264,32 @@ export class ResultPages {
         fields.push(field);
         next++;
       }
+      // Keep the report handle and coverage visible even when detail fields
+      // need paging; otherwise the model must discover the handle by trial.
+      const metadata: Record<string, unknown> = {};
+      for (const [key, val] of entries) {
+        if (
+          [
+            "reportId",
+            "reportType",
+            "snapshotAt",
+            "metric",
+            "from",
+            "through",
+            "queryComplete",
+            "datasetCompleteness",
+            "status",
+          ].includes(key) &&
+          (val === null ||
+            ["string", "number", "boolean"].includes(typeof val)) &&
+          JSON.stringify(val).length < 250
+        )
+          metadata[key] = val;
+      }
       return JSON.stringify({
         resultId: id,
         path,
+        metadata,
         fields,
         totalFields: entries.length,
         nextOffset: next < entries.length ? next : null,

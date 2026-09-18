@@ -5,7 +5,7 @@ import { historyMessages } from "./context";
 import { observer } from "./observation";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { makeAgent } from "./model";
-import { adapter } from "./adapter";
+import { adapter, loadWorkspaceContext } from "./adapter";
 import { authorizedDatasets, connectMcp } from "./mcp";
 import { AppError, errors, modelConfig, publicError } from "./config";
 import { registry } from "./registry";
@@ -96,6 +96,8 @@ async function execute(
       datasets,
     });
     signal.throwIfAborted();
+    let renderedAnswer: string | undefined;
+    let requiresPresentation = false;
     const tools = await adapter(
       client,
       store,
@@ -104,6 +106,12 @@ async function execute(
       signal,
       (value) => {
         live.stage = value;
+      },
+      (answer) => {
+        renderedAnswer = answer;
+      },
+      (required) => {
+        requiresPresentation = required;
       },
     );
     // A transport failure ends execution even if Pi would otherwise feed it back to the model.
@@ -129,8 +137,12 @@ async function execute(
       conversation.datasetName,
       conversation.datasetId,
       client.getInstructions(),
+      undefined,
+      await loadWorkspaceContext(tools),
     );
     agent = makeAgent(prompt, tools, messages, {
+      finalAnswer: () => renderedAnswer,
+      requiresPresentation: () => requiresPresentation,
       observe,
       usage: (usage) => {
         live.context = usage;

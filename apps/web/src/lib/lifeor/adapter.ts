@@ -31,6 +31,8 @@ export async function adapter(
   datasetId: string,
   signal: AbortSignal,
   stage: (value: string) => void,
+  finishReport?: (answer: string | undefined) => void,
+  requirePresentation?: (required: boolean) => void,
 ): Promise<AgentTool[]> {
   let cursor: string | undefined;
   const catalog: Awaited<ReturnType<Client["listTools"]>>["tools"] = [];
@@ -144,7 +146,11 @@ export async function adapter(
           );
           return {
             name: t.name,
-            invocation: { tool: "call_tool", name: t.name, arguments: "Supply the fields from inputSchema inside arguments." },
+            invocation: {
+              tool: "call_tool",
+              name: t.name,
+              arguments: "Supply the fields from inputSchema inside arguments.",
+            },
             description: t.description,
             inputSchema: schema,
             annotations: t.annotations,
@@ -255,7 +261,29 @@ export async function adapter(
             `${tool.title ?? tool.name}: ${result.isError ? "not completed" : "completed"}`,
             result,
           );
-          const text = pages.save(normalizeResult(result));
+          const normalized = normalizeResult(result);
+          if (
+            tool.name === "reports.present" &&
+            !result.isError &&
+            normalized &&
+            typeof normalized === "object" &&
+            "answer" in normalized &&
+            typeof normalized.answer === "string"
+          )
+            finishReport?.(normalized.answer);
+          if (!result.isError && tool.annotations?.readOnlyHint === false) {
+            requirePresentation?.(false);
+            finishReport?.(undefined);
+          }
+          if (
+            !result.isError &&
+            normalized &&
+            typeof normalized === "object" &&
+            "reportId" in normalized &&
+            typeof normalized.reportId === "string"
+          )
+            requirePresentation?.(true);
+          const text = pages.save(normalized);
           return {
             content: [{ type: "text", text }],
             isError: !!result.isError,
@@ -312,13 +340,40 @@ export async function adapter(
   // The server selects a small task-oriented entry surface. Keep the discovered
   // schema authoritative; these wrappers use the same validated/audited path.
   const call = exposed.find((t) => t.name === "call_tool")!;
+  if (tools.some((t) => t.name === "reports.present") && finishReport)
+    exposed.push({
+      name: "present_report",
+      label: "Present verified report",
+      description:
+        "Finish this answer by displaying verified report facts directly. Use after financial, payroll, project, timeline or cash reports. Supply their reportIds and choose a view: by_period for monthly/yearly breakdowns, by_account for categories, summary otherwise. This ends the response without rewriting amounts. For multi-part answers combine up to four report IDs. Saved report details support offset and limit (default 50); totals always cover all matching rows. Do not write your own monetary summary instead.",
+      parameters: Type.Object({
+        reportIds: Type.Array(Type.String(), { minItems: 1, maxItems: 4 }),
+        offset: Type.Optional(Type.Integer({ minimum: 0 })),
+        limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+        view: Type.Optional(
+          Type.Union([
+            Type.Literal("summary"),
+            Type.Literal("by_period"),
+            Type.Literal("by_account"),
+            Type.Literal("full"),
+          ]),
+        ),
+      }),
+      execute: (id, args, signal, update) =>
+        call.execute(
+          id,
+          { name: "reports.present", arguments: args },
+          signal,
+          update,
+        ),
+    });
   const primary = tools
     .filter(
       (t) =>
         t.annotations?.readOnlyHint === true &&
         t._meta?.["lifeor2/primary"] === true,
     )
-    .slice(0, 4);
+    .slice(0, 8);
   for (const tool of primary) {
     const schema = structuredClone(tool.inputSchema);
     delete schema.properties?.datasetId;
@@ -332,13 +387,25 @@ export async function adapter(
       description: tool.description ?? tool.name,
       parameters: schema as AgentTool["parameters"],
       execute: (id, args, signal, update) =>
-        call.execute(
-          id,
-          { name: tool.name, arguments: args },
-          signal,
-          update,
-        ),
+        call.execute(id, { name: tool.name, arguments: args }, signal, update),
     });
   }
   return exposed;
+}
+
+/** Deterministic bootstrap saves a model round for local dates and household scope. */
+export async function loadWorkspaceContext(
+  tools: AgentTool[],
+): Promise<unknown> {
+  const context = tools.find((t) => t.name === "life_context");
+  if (!context) return undefined;
+  const result = await context.execute(randomUUID(), {});
+  const block = result.content.find((p) => p.type === "text");
+  if (!block || block.type !== "text" || Buffer.byteLength(block.text) > 8000)
+    return undefined;
+  try {
+    return JSON.parse(block.text);
+  } catch {
+    return undefined;
+  }
 }
