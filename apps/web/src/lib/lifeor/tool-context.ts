@@ -270,6 +270,10 @@ export class ResultPages {
       for (const [key, val] of entries) {
         if (
           [
+            "commit",
+            "documentId",
+            "availability",
+            "revision",
             "reportId",
             "reportType",
             "snapshotAt",

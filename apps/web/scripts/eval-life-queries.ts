@@ -9,6 +9,7 @@ import { makeAgent } from "../src/lib/lifeor/model";
 import { workspacePrompt } from "../src/lib/lifeor/prompt";
 import { sanitizeObservation } from "../src/lib/lifeor/observation";
 import { modelConfig } from "../src/lib/lifeor/config";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Store } from "../src/lib/lifeor/types";
 const option = (key: string, fallback: string) =>
   process.argv.find((a) => a.startsWith(`--${key}=`))?.slice(key.length + 3) ??
@@ -35,6 +36,7 @@ const cases: {
   mode?: "read" | "write";
   expected?: string;
   phase?: string;
+  conversation?: string;
 }[] = JSON.parse(
   await readFile(
     option("cases", "../../../lifeor2/scripts/evaluation/cases.json"),
@@ -43,6 +45,7 @@ const cases: {
 );
 const output = option("output", "../../.eval-results/life-queries.jsonl");
 await mkdir(output.slice(0, output.lastIndexOf("/")), { recursive: true });
+const conversations = new Map<string, AgentMessage[]>();
 for (const c of cases.filter((c) =>
   option("only", cases.map((c) => c.id).join(","))
     .split(",")
@@ -117,7 +120,7 @@ for (const c of cases.filter((c) =>
         await loadWorkspaceContext(tools),
       ),
       tools,
-      [],
+      c.conversation ? (conversations.get(c.conversation) ?? []) : [],
       {
         finalAnswer: () => renderedAnswer,
         requiresPresentation: () => requiresPresentation,
@@ -142,6 +145,8 @@ for (const c of cases.filter((c) =>
     );
     await agent.prompt(c.question);
     error = agent.state.errorMessage;
+    if (c.conversation)
+      conversations.set(c.conversation, structuredClone(agent.state.messages));
     const last = agent.state.messages.at(-1);
     if (last?.role === "assistant") {
       answer = last.content
@@ -172,7 +177,7 @@ for (const c of cases.filter((c) =>
   const writes = operations.filter(
     (n) =>
       writeNames.has(n) ||
-      /^(datasets\.(create|select|prepareSample|populateSampleMonth)|details\.(save|delete)|trash\.)/.test(
+      /^(datasets\.(create|select|prepareSample|populateSampleMonth)|details\.(save|delete|append)|trash\.)/.test(
         n,
       ),
   );
@@ -203,6 +208,7 @@ for (const c of cases.filter((c) =>
     question: c.question,
     expected: c.expected,
     phase: c.phase,
+    conversation: c.conversation,
     model: config.model,
     context: config.context,
     outputLimit: config.output,
