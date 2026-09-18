@@ -114,12 +114,20 @@ test("coming up does not discover update mutations through substring matches", (
       description: "Reschedule an appointment",
       annotations: { readOnlyHint: false },
     },
+    {
+      name: "details.append",
+      description: "Append to a source note",
+      annotations: { readOnlyHint: false },
+    },
   ];
   expect(
     rankTools(tools, "What's coming up this month?").map((t) => t.name),
   ).toEqual(["life.timeline"]);
   expect(rankTools(tools, "reschedule appointment")[0].name).toBe(
     "records.rescheduleEvent",
+  );
+  expect(rankTools(tools, "Append this sentence to the source note")[0].name).toBe(
+    "details.append",
   );
 });
 

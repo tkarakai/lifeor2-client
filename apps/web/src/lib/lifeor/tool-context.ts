@@ -104,7 +104,7 @@ export function rankTools<T extends CatalogTool>(
     ),
   ];
   const writing =
-    /\b(create|edit|update|delete|reverse|post|write|remove|archive|restore|save|record|add|change|cancel|reschedule|rename|amend|attach)\b/i.test(
+    /\b(create|edit|update|delete|reverse|post|write|remove|archive|restore|save|record|add|append|change|cancel|reschedule|rename|amend|attach)\b/i.test(
       query,
     );
   // Whole words prevent e.g. "up" matching update. Ordinary questions never
