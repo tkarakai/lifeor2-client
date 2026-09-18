@@ -186,6 +186,12 @@ export class ResultPages {
     this.bytes += size;
     return this.read(id);
   }
+  has(id: string) { return this.values.has(id); }
+  reportId(id: string): string | undefined {
+    const value = this.values.get(id);
+    return value && typeof value === "object" && "reportId" in value && typeof value.reportId === "string"
+      ? value.reportId : undefined;
+  }
   read(id: string, path = "", offset = 0): string {
     if (!this.values.has(id))
       return JSON.stringify({

@@ -240,16 +240,18 @@ test("real MCP v2 adapter persists stable write keys and waits for an explicit c
 test("later reports and successful writes invalidate an earlier prepared answer", async () => {
   const handler = createMcpHandler(() => {
     const mcp = new McpServer({ name: "report-fixture", version: "1" });
-    for (const name of ["reports.finances", "reports.present", "records.edit"]) {
+    for (const name of ["reports.finances", "reports.present", "reports.read", "records.edit", "legacy.income"]) {
       mcp.registerTool(name, {
         description: name,
         annotations: { readOnlyHint: name !== "records.edit" },
+        ...(name === "legacy.income" ? { _meta: { "lifeor2/replacedBy": "reports.finances" } } : {}),
         inputSchema: fromJsonSchema({
-          type: "object", properties: { datasetId: { type: "string" } },
+          type: "object", properties: { datasetId: { type: "string" }, reportId: { type: "string" }, offset: { type: "integer" } },
           required: ["datasetId"], additionalProperties: false,
         }),
       }, async () => {
-        const value = name === "reports.finances" ? { reportId: "fresh" }
+        const value = name === "reports.read" ? { reportId: "fresh", rows: ["Remaining category"], nextOffset: null }
+          : name === "reports.finances" ? { reportId: "fresh" }
           : name === "reports.present" ? { answer: "Verified facts" } : { saved: true };
         return { resultType: "complete", structuredContent: value,
           content: [{ type: "text", text: JSON.stringify(value) }] };
@@ -270,8 +272,14 @@ test("later reports and successful writes invalidate an earlier prepared answer"
       new AbortController().signal, () => {}, value => { prepared = value; }, value => { required = value; });
     const call = tools.find(t => t.name === "call_tool")!;
     const execute = (name: string) => call.execute(name, { name, arguments: {} });
+    const unknown = await execute("legacy.income");
+    expect(JSON.stringify(unknown.content)).toContain("UNKNOWN_TOOL");
+    const found = await tools.find(t => t.name === "find_tools")!.execute("discover", { query: "legacy.income" });
+    expect(JSON.stringify(found.content)).not.toContain('"name":"legacy.income"');
     await execute("reports.finances");
     expect(required).toBe(true);
+    const page = await tools.find(t => t.name === "read_result")!.execute("page", { resultId: "fresh", path: "/rows", offset: 8 });
+    expect(JSON.stringify(page.content)).toContain("Remaining category");
     await execute("reports.present");
     expect(prepared).toBe("Verified facts");
     await execute("reports.finances");

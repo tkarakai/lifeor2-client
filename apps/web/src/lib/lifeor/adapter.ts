@@ -48,7 +48,8 @@ export async function adapter(
   const tools = catalog.filter(
     (t) =>
       "datasetId" in (t.inputSchema.properties ?? {}) &&
-      t.name !== "datasets.select",
+      t.name !== "datasets.select" &&
+      typeof t._meta?.["lifeor2/replacedBy"] !== "string",
   );
   const ajv = new Ajv({ strict: false, allErrors: true });
   const validators = new Map(
@@ -191,8 +192,15 @@ export async function adapter(
         };
         signal.throwIfAborted();
         const tool = tools.find((t) => t.name === input.name);
-        if (!tool)
-          throw new Error("Tool not authorized. Search the catalog first.");
+        if (!tool) {
+          const suggestions = rankTools(tools, `${input.name} ${Object.keys(input.arguments).join(" ")}`);
+          return { content: [{ type: "text", text: JSON.stringify({
+            isError: true, code: "UNKNOWN_TOOL", executed: false,
+            message: "Use an exact authorized tool name. No operation was executed.",
+            suggestions: suggestions.map(t => ({ name: t.name, description: t.description })),
+            next: "Use a matching native tool already provided, or find_tools with an exact suggested name to obtain its schema.",
+          }) }], isError: true, details: { isError: true } };
+        }
         const args = boundArguments(
           tool.inputSchema,
           input.arguments,
@@ -311,7 +319,7 @@ export async function adapter(
       name: "read_result",
       label: "Read saved result",
       description:
-        "Read a page or JSON-pointer field from a large tool result saved during this run. Does not repeat the server operation. Follow nextOffset; do not assume a partial page is complete.",
+        "Read a saved result or report without re-querying transactions. resultId accepts either a temporary resultId or a saved reportId. For report rows use path=/rows and offset; for other large results use returned JSON-pointer paths. Follow nextOffset. For a final category breakdown, prefer present_report(view=by_account), which renders all saved rows directly.",
       parameters: Type.Object({
         resultId: Type.String(),
         path: Type.Optional(Type.String()),
@@ -321,6 +329,12 @@ export async function adapter(
         signal.throwIfAborted();
         const a = args as { resultId: string; path?: string; offset?: number };
         try {
+          const reportId = pages.reportId(a.resultId) ?? (!pages.has(a.resultId) ? a.resultId : undefined);
+          if (reportId && (!a.path || ["/rows", "/items", "/actuals/rows"].includes(a.path)) && tools.some(t => t.name === "reports.read")) {
+            return exposed.find(t => t.name === "call_tool")!.execute(_id, {
+              name: "reports.read", arguments: { reportId, offset: a.offset ?? 0 },
+            });
+          }
           return {
             content: [
               { type: "text", text: pages.read(a.resultId, a.path, a.offset) },
@@ -386,6 +400,7 @@ export async function adapter(
     "records.rescheduleEvent",
     "records.recordExpense",
     "records.changeSchedule",
+    "entities.create",
     "entities.update",
     "details.append",
   ]);
