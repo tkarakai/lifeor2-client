@@ -461,7 +461,7 @@ export async function adapter(
       name: "present_report",
       label: "Present verified report",
       description:
-        "Finish this answer by displaying verified report facts directly. Use after financial, payroll, project, timeline, cash, calendar or source-excerpt reports. Supply their reportIds and choose a view: by_period for monthly/yearly breakdowns, by_account for categories, summary otherwise. This ends the response without rewriting amounts. For multi-part answers combine up to four report IDs. Saved report details support offset and limit (default 50); totals always cover all matching rows. Do not write your own monetary summary instead.",
+        "Finish this answer by displaying verified report facts directly. Use after financial, payroll, current-debt, project, timeline, cash, calendar or source-excerpt reports. Supply their reportIds and choose a view: by_period for monthly/yearly breakdowns, by_account for categories, summary otherwise. This ends the response without rewriting amounts. For multi-part answers combine up to four report IDs. Saved report details support offset and limit (default 50); totals always cover all matching rows. Do not write your own monetary summary instead.",
       parameters: Type.Object({
         reportIds: Type.Array(Type.String(), { minItems: 1, maxItems: 4 }),
         offset: Type.Optional(Type.Integer({ minimum: 0 })),
@@ -492,7 +492,7 @@ export async function adapter(
         t.annotations?.readOnlyHint === true &&
         t._meta?.["lifeor2/primary"] === true,
     )
-    .slice(0, 11);
+    .slice(0, 12);
   // Prefetch at most two focused edit schemas using the same relevance ranking.
   // This only improves discovery; normal validation, scope and audit still apply.
   const focusedWrites = new Set([
