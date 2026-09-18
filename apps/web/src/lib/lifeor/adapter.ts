@@ -379,17 +379,17 @@ export async function adapter(
           }
           if (
             !result.isError &&
-            ["records.recordEvent", "records.rescheduleEvent"].includes(tool.name) &&
+            ["records.recordEvent", "records.rescheduleEvent", "life.timeline"].includes(tool.name) &&
             normalized && typeof normalized === "object" &&
             "status" in normalized && normalized.status === "needs_input" &&
-            "kind" in normalized && normalized.kind === "ambiguous_local_time" &&
+            "kind" in normalized && ["ambiguous_local_time", "workspace_scope"].includes(String(normalized.kind)) &&
             "question" in normalized && typeof normalized.question === "string" &&
             normalized.question.length <= 600
           ) {
-            // Civil-time alternatives are computed by the service. Do not ask
-            // the model to invent or rewrite the repeated clock occurrences.
+            // Service-computed clock/scope clarifications are final answers,
+            // not material for the model to guess missing settings.
             awaitingClarification = true;
-            await event("clarification", "Choose the recorded clock occurrence", normalized);
+            await event("clarification", normalized.kind === "workspace_scope" ? "Choose household and calendar defaults" : "Choose the recorded clock occurrence", normalized);
             finishReport?.(normalized.question);
           }
           if (
@@ -409,6 +409,10 @@ export async function adapter(
             // not prevent an ordinary absence explanation or unsupported-request response.
             if (!emptyTimeline && (!recordsChanged || freshReportIds.has(normalized.reportId))) reportIds = [...new Set([...reportIds, normalized.reportId])];
             requirePresentation?.(reportIds.length > 0, reportIds);
+          }
+          if (!result.isError && !reading && ["records.recordEvent", "records.rescheduleEvent"].includes(tool.name) && normalized && typeof normalized === "object" && "committedAnswer" in normalized && typeof normalized.committedAnswer === "string") {
+            // A committed write must remain confirmed even if optional report-file storage fails.
+            finishReport?.(normalized.committedAnswer);
           }
           // The verified answer is emitted separately as the assistant message.
           // Keep its handles here instead of putting a second full copy into

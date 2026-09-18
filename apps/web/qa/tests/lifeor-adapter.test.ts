@@ -659,3 +659,40 @@ test("relevant profile reads expose a direct validated schema without widening t
   const invoices = await adapter(...args, "Show all current unpaid invoices");
   expect(invoices.some(t => t.name === "details_read")).toBe(false); // Better matching domain reads win over a generic shared word.
 });
+
+test("missing calendar scope finishes as the exact service clarification and blocks guessed writes", async () => {
+  let calls = 0;
+  let final: string | undefined;
+  const question = "Which household and timezone should I use? Neither is configured.";
+  const client = {
+    listTools: async () => ({ tools: ["life.timeline", "records.recordEvent"].map(name => ({ name, annotations: { readOnlyHint: name === "life.timeline" }, inputSchema: { type: "object", properties: { datasetId: { type: "string" } }, required: ["datasetId"] } })) }),
+    setRequestHandler: () => {},
+    callTool: async () => { calls++; return { structuredContent: { status: "needs_input", kind: "workspace_scope", question, executed: false } }; },
+  } as unknown as Client;
+  const tools = await adapter(client, (async () => null) as Store, "run", "dataset", new AbortController().signal, () => {}, text => { final = text; });
+  const call = tools.find(t => t.name === "call_tool")!;
+  await call.execute("scope", { name: "life.timeline", arguments: {} });
+  expect(final).toBe(question);
+  expect((await call.execute("guess", { name: "records.recordEvent", arguments: {} })).details).toEqual({ isError: true });
+  expect(calls).toBe(1);
+});
+
+test("calendar receipt stays fresh after its write and storage failure preserves the committed answer", async () => {
+  let required = false;
+  let final: string | undefined;
+  let saved = true;
+  const client = {
+    listTools: async () => ({ tools: ["records.recordEvent", "reports.present"].map(name => ({ name, annotations: { readOnlyHint: name === "reports.present" }, inputSchema: { type: "object", properties: { datasetId: { type: "string" }, reportIds: { type: "array", items: { type: "string" } } }, required: ["datasetId"] } })) }),
+    setRequestHandler: () => {},
+    callTool: async (call: { name: string }) => ({ structuredContent: call.name === "reports.present" ? { answer: "Verified Saturday appointment" } : saved ? { status: "recorded", id: "event", reportId: "receipt", reportType: "event_change" } : { status: "recorded", id: "event2", reportUnavailable: true, committedAnswer: "Verified committed appointment despite storage failure" } }),
+  } as unknown as Client;
+  const tools = await adapter(client, (async () => null) as Store, "run", "dataset", new AbortController().signal, () => {}, text => { final = text; }, value => { required = value; });
+  const call = tools.find(t => t.name === "call_tool")!;
+  await call.execute("write", { name: "records.recordEvent", arguments: {} });
+  expect(required).toBe(true);
+  await call.execute("confirm", { name: "reports.present", arguments: { reportIds: ["receipt"] } });
+  expect(final).toBe("Verified Saturday appointment");
+  saved = false;
+  await call.execute("write2", { name: "records.recordEvent", arguments: {} });
+  expect(final).toBe("Verified committed appointment despite storage failure");
+});
