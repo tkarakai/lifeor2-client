@@ -33,6 +33,7 @@ export async function adapter(
   stage: (value: string) => void,
   finishReport?: (answer: string | undefined) => void,
   requirePresentation?: (required: boolean) => void,
+  question?: string,
 ): Promise<AgentTool[]> {
   let cursor: string | undefined;
   const catalog: Awaited<ReturnType<Client["listTools"]>>["tools"] = [];
@@ -373,8 +374,27 @@ export async function adapter(
         t.annotations?.readOnlyHint === true &&
         t._meta?.["lifeor2/primary"] === true,
     )
-    .slice(0, 8);
-  for (const tool of primary) {
+    .slice(0, 10);
+  // Prefetch at most two focused edit schemas using the same relevance ranking.
+  // This only improves discovery; normal validation, scope and audit still apply.
+  const focusedWrites = new Set([
+    "records.recordEvent",
+    "records.rescheduleEvent",
+    "records.recordExpense",
+    "records.changeSchedule",
+    "entities.update",
+    "details.append",
+  ]);
+  const suggestedWrites = question
+    ? rankTools(
+        tools.filter(
+          (t) =>
+            t.annotations?.readOnlyHint === false && focusedWrites.has(t.name),
+        ),
+        question,
+      ).slice(0, 2)
+    : [];
+  for (const tool of [...primary, ...suggestedWrites]) {
     const schema = structuredClone(tool.inputSchema);
     delete schema.properties?.datasetId;
     delete schema.properties?.requestKey;

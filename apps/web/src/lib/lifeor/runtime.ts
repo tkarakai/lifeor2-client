@@ -113,6 +113,7 @@ async function execute(
       (required) => {
         requiresPresentation = required;
       },
+      run.prompt,
     );
     // A transport failure ends execution even if Pi would otherwise feed it back to the model.
     for (const tool of tools) {

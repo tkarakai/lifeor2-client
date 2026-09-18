@@ -110,6 +110,7 @@ for (const c of cases.filter((c) =>
       (required) => {
         requiresPresentation = required;
       },
+      c.question,
     );
     const agent = makeAgent(
       workspacePrompt(
