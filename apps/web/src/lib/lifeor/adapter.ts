@@ -131,7 +131,27 @@ export async function adapter(
   const reads = new Map<string, number>();
   const accountNames = new Map<string, string>();
   let reportIds: string[] = [];
+  let awaitingClarification = false;
   const exposed: AgentTool[] = [
+    {
+      name: "ask_user",
+      label: "Ask for missing information",
+      description: "Finish this turn with one concise question for missing consequential information or an ambiguous identity. Use immediately when a required payment account, expense purpose, date, timezone or record choice was not supplied. Database searches cannot establish an unspecified user choice. This asks a question and does not change records.",
+      parameters: Type.Object({ question: Type.String({ minLength: 3, maxLength: 600 }) }),
+      execute: async (_id, args) => {
+        signal.throwIfAborted();
+        const question = (args as { question: string }).question.trim();
+        if (question.length < 3 || question.length > 600) throw new AppError("INVALID_INPUT");
+        awaitingClarification = true;
+        await event("clarification", "Missing information", { question });
+        if (finishReport) {
+          reportIds = [];
+          requirePresentation?.(false, []);
+          finishReport(question);
+        }
+        return { content: [{ type: "text", text: question }], details: { clarification: true } };
+      },
+    },
     {
       name: "find_tools",
       label: "Find LifeOR2 tools",
@@ -195,6 +215,7 @@ export async function adapter(
           arguments: Record<string, unknown>;
         };
         signal.throwIfAborted();
+        if (awaitingClarification) return { content: [{ type: "text", text: "Waiting for the user to answer the clarification. No further operation was executed." }], isError: true, details: { isError: true } };
         const tool = tools.find((t) => t.name === input.name);
         if (!tool) {
           const suggestions = rankTools(tools, `${input.name} ${Object.keys(input.arguments).join(" ")}`);

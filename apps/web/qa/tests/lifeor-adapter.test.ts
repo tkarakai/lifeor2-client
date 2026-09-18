@@ -434,3 +434,22 @@ test("expense payment accounts require an original user reference even when reco
     }
   } finally { await client.close(); await server.stop(true); }
 });
+
+test("clarification finishes directly and blocks a later operation in the same tool batch", async () => {
+  let calls = 0;
+  let final: string | undefined;
+  const events: unknown[] = [];
+  const client = {
+    listTools: async () => ({ tools: [{ name: "records.edit", inputSchema: { type: "object", properties: { datasetId: { type: "string" } }, required: ["datasetId"] } }] }),
+    setRequestHandler: () => {},
+    callTool: async () => { calls++; return {}; },
+  } as unknown as Client;
+  const store = (async (_op: string, args: unknown) => { events.push(args); return null; }) as Store;
+  const tools = await adapter(client, store, "run", "dataset", new AbortController().signal, () => {}, text => { final = text; });
+  await tools.find(t => t.name === "ask_user")!.execute("ask", { question: "Which payment account should I use?" });
+  expect(final).toBe("Which payment account should I use?");
+  const blocked = await tools.find(t => t.name === "call_tool")!.execute("late", { name: "records.edit", arguments: {} });
+  expect(blocked.details).toEqual({ isError: true });
+  expect(calls).toBe(0);
+  expect(JSON.stringify(events)).toContain('clarification');
+});
