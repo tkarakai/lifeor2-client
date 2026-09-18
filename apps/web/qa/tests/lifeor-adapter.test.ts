@@ -385,3 +385,48 @@ test("MCP wire inspection preserves the response and excludes auth credentials",
     process.env = originalEnv;
   }
 });
+
+test("expense payment accounts require an original user reference even when records suggest one", async () => {
+  let writes = 0;
+  const handler = createMcpHandler(() => {
+    const server = new McpServer({ name: "payment-fixture", version: "1" });
+    for (const name of ["life.read", "records.recordExpense"]) {
+      const reading = name === "life.read";
+      server.registerTool(name, {
+        description: name,
+        annotations: { readOnlyHint: reading },
+        inputSchema: fromJsonSchema({ type: "object", properties: {
+          datasetId: { type: "string" },
+          ...(reading ? { kind: { type: "string" }, id: { type: "string" } } : { paidFromAccountId: { type: "string" }, requestKey: { type: "string" } }),
+        }, required: reading ? ["datasetId", "kind", "id"] : ["datasetId", "paidFromAccountId", "requestKey"], additionalProperties: false }),
+      }, async () => {
+        if (!reading) writes++;
+        const result = reading ? { record: { _id: "cash", name: "Ellis checking" } } : { saved: true };
+        return { resultType: "complete", content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      });
+    }
+    return server;
+  }, { legacy: "reject", responseMode: "json" });
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: r => handler.fetch(r) });
+  const client = new Client({ name: "fixture", version: "1" }, {
+    versionNegotiation: { mode: { pin: "2026-07-28" } }, capabilities: { elicitation: { form: {} } },
+  });
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${server.port}`)));
+    const store: Store = async <T>() => null as T;
+    for (const [question, prior, allowed] of [
+      ["Record a $50 grocery expense", [], false],
+      ["Record a $50 grocery expense from Ellis checking", [], true],
+      ["Record another $50 grocery expense", ["Use Ellis checking for this receipt"], true],
+    ] as const) {
+      const list = await adapter(client, store, `run-${writes}`, "dataset", new AbortController().signal, () => {}, undefined, undefined, question, [...prior]);
+      const call = list.find(t => t.name === "call_tool")!;
+      // Verification can reuse an already-read identity rather than trip the read-loop guard.
+      for (let i = 0; i < 2; i++) await call.execute(`read-${i}`, { name: "life.read", arguments: { kind: "ledger_account", id: "cash" } });
+      const before = writes;
+      const result = await call.execute("expense", { name: "records.recordExpense", arguments: { paidFromAccountId: "cash" } });
+      expect(writes - before).toBe(allowed ? 1 : 0);
+      if (!allowed) expect(JSON.stringify(result.content)).toContain("PAYMENT_ACCOUNT_REQUIRED");
+    }
+  } finally { await client.close(); await server.stop(true); }
+});

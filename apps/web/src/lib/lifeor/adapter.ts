@@ -7,6 +7,7 @@ import type { Store, Run } from "./types";
 import { AppError } from "./config";
 import { canonical, hash } from "./crypto";
 import { normalizeResult, rankTools, ResultPages } from "./tool-context";
+import { paymentAccountReferenced } from "./payment-reference";
 
 export function boundArguments(
   schema: Record<string, unknown>,
@@ -34,6 +35,7 @@ export async function adapter(
   finishReport?: (answer: string | undefined) => void,
   requirePresentation?: (required: boolean) => void,
   question?: string,
+  priorUserPrompts: string[] = [],
 ): Promise<AgentTool[]> {
   let cursor: string | undefined;
   const catalog: Awaited<ReturnType<Client["listTools"]>>["tools"] = [];
@@ -127,6 +129,7 @@ export async function adapter(
   const pages = new ResultPages();
   const discoveries = new Map<string, number>();
   const reads = new Map<string, number>();
+  const accountNames = new Map<string, string>();
   const exposed: AgentTool[] = [
     {
       name: "find_tools",
@@ -237,6 +240,22 @@ export async function adapter(
             details: { isError: true },
           };
         const reading = tool.annotations?.readOnlyHint === true;
+        if (tool.name === "records.recordExpense") {
+          const accountId = String(args.paidFromAccountId);
+          if (!accountNames.has(accountId)) {
+            if (!tools.some(t => t.name === "life.read")) throw new Error("Payment-account verification is unavailable");
+            await exposed.find(t => t.name === "call_tool")!.execute(`${_callId}-payment-reference`, {
+              name: "life.read", arguments: { kind: "ledger_account", id: accountId },
+            });
+          }
+          const name = accountNames.get(accountId);
+          if (!name || !paymentAccountReferenced(name, accountId, [...priorUserPrompts, question ?? ""])) {
+            const error = { isError: true, code: "PAYMENT_ACCOUNT_REQUIRED", executed: false,
+              message: "Ask the user which payment account to use. The selected account was not identified in the available original user messages. Database records and model-generated memory do not supply that missing choice. No expense was posted." };
+            await event("tool_error", "Payment account needs user input", { tool: tool.name, ...error });
+            return { content: [{ type: "text", text: JSON.stringify(error) }], isError: true, details: { isError: true } };
+          }
+        }
         const readCount = (reads.get(key) ?? 0) + 1;
         if (reading) reads.set(key, readCount);
         if (reading && readCount > 2)
@@ -250,7 +269,7 @@ export async function adapter(
             details: {},
           };
         // A mutation can change the evidence; allow fresh verification reads afterward.
-        if (!reading) reads.clear();
+        if (!reading) { reads.clear(); accountNames.clear(); }
         current = { name: tool.name, args };
         stage(reading ? "Reading records" : "Updating records");
         // Persist the exact write identity BEFORE dispatch, including ambiguous failures.
@@ -271,6 +290,10 @@ export async function adapter(
             result,
           );
           const normalized = normalizeResult(result);
+          if (tool.name === "life.read" && args.kind === "ledger_account" && !result.isError && normalized && typeof normalized === "object" && "record" in normalized) {
+            const record = normalized.record as { _id?: string; name?: string };
+            if (record._id === args.id && typeof record.name === "string") accountNames.set(record._id, record.name);
+          }
           if (
             tool.name === "reports.present" &&
             !result.isError &&
@@ -359,7 +382,8 @@ export async function adapter(
   // The server selects a small task-oriented entry surface. Keep the discovered
   // schema authoritative; these wrappers use the same validated/audited path.
   const call = exposed.find((t) => t.name === "call_tool")!;
-  if (tools.some((t) => t.name === "reports.present") && finishReport)
+  const presentationTool = tools.find((t) => t.name === "reports.present");
+  if (presentationTool && finishReport)
     exposed.push({
       name: "present_report",
       label: "Present verified report",
@@ -369,6 +393,9 @@ export async function adapter(
         reportIds: Type.Array(Type.String(), { minItems: 1, maxItems: 4 }),
         offset: Type.Optional(Type.Integer({ minimum: 0 })),
         limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+        ...(presentationTool.inputSchema.properties?.order ? { order: Type.Optional(Type.Union([Type.Literal("amount_desc"), Type.Literal("amount_asc")], {
+          description: "For largest/smallest financial amounts, rank before limiting: by_account ranks categories; by_period ranks periods (profit_loss uses net income). Select one currency and comparable types.",
+        })) } : {}),
         view: Type.Optional(
           Type.Union([
             Type.Literal("summary"),

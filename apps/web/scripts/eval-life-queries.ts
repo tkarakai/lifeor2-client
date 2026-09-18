@@ -46,6 +46,7 @@ const cases: {
 const output = option("output", "../../.eval-results/life-queries.jsonl");
 await mkdir(output.slice(0, output.lastIndexOf("/")), { recursive: true });
 const conversations = new Map<string, AgentMessage[]>();
+const userPrompts = new Map<string, string[]>();
 for (const c of cases.filter((c) =>
   option("only", cases.map((c) => c.id).join(","))
     .split(",")
@@ -111,7 +112,9 @@ for (const c of cases.filter((c) =>
         requiresPresentation = required;
       },
       c.question,
+      c.conversation ? (userPrompts.get(c.conversation) ?? []) : [],
     );
+    if (c.conversation) userPrompts.set(c.conversation, [...(userPrompts.get(c.conversation) ?? []), c.question]);
     const agent = makeAgent(
       workspacePrompt(
         option("dataset-name", "test-data1 evaluation"),

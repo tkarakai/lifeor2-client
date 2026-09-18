@@ -114,6 +114,7 @@ async function execute(
         requiresPresentation = required;
       },
       run.prompt,
+      history.filter(r => r.kind !== "compaction").map(r => r.prompt),
     );
     // A transport failure ends execution even if Pi would otherwise feed it back to the model.
     for (const tool of tools) {
