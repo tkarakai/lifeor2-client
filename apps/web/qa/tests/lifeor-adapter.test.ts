@@ -634,3 +634,25 @@ test("verified presentation can state insufficient evidence without allowing inv
   expect(rejected.details).toEqual({ isError: true });
   expect(dispatched).toHaveLength(1);
 });
+
+
+test("relevant profile reads expose a direct validated schema without widening the write surface", async () => {
+  const dispatched: Record<string, unknown>[] = [];
+  const client = {
+    listTools: async () => ({ tools: [
+      { name: "details.read", description: "Read a profile birthday, birthplace, preferences or source note.", annotations: { readOnlyHint: true }, inputSchema: { type: "object", properties: { datasetId: { type: "string" }, target: { type: "object" }, query: { type: "string" } }, required: ["datasetId", "target"], additionalProperties: false } },
+      { name: "details.save", description: "Save profile birthday or birthplace.", annotations: { readOnlyHint: false }, inputSchema: { type: "object", properties: {} } },
+    ] }),
+    setRequestHandler: () => {},
+    callTool: async (call: { arguments: Record<string, unknown> }) => { dispatched.push(call.arguments); return { structuredContent: { items: [], queryComplete: true } }; },
+  } as unknown as Client;
+  const args = [client, (async () => null) as Store, "run", "dataset", new AbortController().signal, () => {}, undefined, undefined] as const;
+  const tools = await adapter(...args, "When is this person's birthday?");
+  expect(tools.some(t => t.name === "details_save")).toBe(false);
+  const read = tools.find(t => t.name === "details_read")!;
+  expect(read.parameters.properties).not.toHaveProperty("datasetId");
+  await read.execute("direct", { target: { kind: "entity", id: "person" }, query: "birthday" });
+  expect(dispatched).toEqual([{ datasetId: "dataset", target: { kind: "entity", id: "person" }, query: "birthday" }]);
+  const unrelated = await adapter(...args, "Show upcoming mortgage payments");
+  expect(unrelated.some(t => t.name === "details_read")).toBe(false);
+});

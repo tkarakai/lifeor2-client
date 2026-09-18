@@ -544,7 +544,13 @@ export async function adapter(
         question,
       ).slice(0, 2)
     : [];
-  for (const tool of [...primary, ...suggestedWrites]) {
+  // Relevant source schemas avoid a nested generic-call envelope for ordinary
+  // profile/note questions. Keep this small and grant-derived, like edit prefetch.
+  const sourceReads = new Set(["details.read", "notes.search"]);
+  const suggestedReads = question
+    ? rankTools(tools.filter(t => t.annotations?.readOnlyHint === true && sourceReads.has(t.name)), question).slice(0, 2)
+    : [];
+  for (const tool of [...primary, ...suggestedReads, ...suggestedWrites].filter((t, i, all) => all.findIndex(other => other.name === t.name) === i)) {
     const schema = structuredClone(tool.inputSchema);
     delete schema.properties?.datasetId;
     delete schema.properties?.requestKey;
