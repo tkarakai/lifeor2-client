@@ -7,7 +7,7 @@ import type { Store, Run } from "./types";
 import { AppError } from "./config";
 import { canonical, hash } from "./crypto";
 import { normalizeResult, rankTools, ResultPages } from "./tool-context";
-import { paymentAccountReferenced } from "./payment-reference";
+import { paymentAccountReferenced, expenseCategoryReferenced } from "./payment-reference";
 
 export function boundArguments(
   schema: Record<string, unknown>,
@@ -33,7 +33,7 @@ export async function adapter(
   signal: AbortSignal,
   stage: (value: string) => void,
   finishReport?: (answer: string | undefined) => void,
-  requirePresentation?: (required: boolean) => void,
+  requirePresentation?: (required: boolean, reportIds?: string[]) => void,
   question?: string,
   priorUserPrompts: string[] = [],
 ): Promise<AgentTool[]> {
@@ -130,6 +130,7 @@ export async function adapter(
   const discoveries = new Map<string, number>();
   const reads = new Map<string, number>();
   const accountNames = new Map<string, string>();
+  let reportIds: string[] = [];
   const exposed: AgentTool[] = [
     {
       name: "find_tools",
@@ -256,6 +257,17 @@ export async function adapter(
             return { content: [{ type: "text", text: JSON.stringify(error) }], isError: true, details: { isError: true } };
           }
         }
+        if (tool.name === "records.recordExpense" && typeof args.expenseAccountId === "string") {
+          const categoryId = args.expenseAccountId;
+          if (!accountNames.has(categoryId)) await exposed.find(t => t.name === "call_tool")!.execute(`${_callId}-category-reference`, { name: "life.read", arguments: { kind: "ledger_account", id: categoryId } });
+          const name = accountNames.get(categoryId);
+          if (!name || !expenseCategoryReferenced(name, categoryId, [...priorUserPrompts, question ?? ""])) {
+            const error = { isError: true, code: "EXPENSE_CATEGORY_REQUIRED", executed: false,
+              message: "Ask what the expense was for or which expense category to use. The selected category was not identified in the available original user messages. An account discovered in the database does not supply that missing purpose. No expense was posted." };
+            await event("tool_error", "Expense category needs user input", { tool: tool.name, ...error });
+            return { content: [{ type: "text", text: JSON.stringify(error) }], isError: true, details: { isError: true } };
+          }
+        }
         const readCount = (reads.get(key) ?? 0) + 1;
         if (reading) reads.set(key, readCount);
         if (reading && readCount > 2)
@@ -304,7 +316,8 @@ export async function adapter(
           )
             finishReport?.(normalized.answer);
           if (!result.isError && !reading) {
-            requirePresentation?.(false);
+            reportIds = [];
+            requirePresentation?.(false, []);
             finishReport?.(undefined);
           }
           if (
@@ -317,7 +330,12 @@ export async function adapter(
             // A later report in the same tool batch must be considered before
             // finalizing an answer that was prepared earlier in that batch.
             finishReport?.(undefined);
-            requirePresentation?.(true);
+            const record = normalized as Record<string, unknown>;
+            const emptyTimeline = record.reportType === "timeline" && record.queryComplete === true && record.itemsComplete === true && record.matchedCount === 0;
+            // An empty calendar result has no monetary facts to protect. It must
+            // not prevent an ordinary absence explanation or unsupported-request response.
+            if (!emptyTimeline) reportIds = [...new Set([...reportIds, normalized.reportId])];
+            requirePresentation?.(reportIds.length > 0, reportIds);
           }
           const text = pages.save(normalized);
           return {

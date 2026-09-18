@@ -58,6 +58,7 @@ for (const c of cases.filter((c) =>
     abort = new AbortController();
   let renderedAnswer: string | undefined;
   let requiresPresentation = false;
+    let fallbackReportIds: string[] = [];
   let answer = "",
     error: string | undefined,
     compactions = 0;
@@ -108,8 +109,9 @@ for (const c of cases.filter((c) =>
       (answer) => {
         renderedAnswer = answer;
       },
-      (required) => {
+      (required, ids) => {
         requiresPresentation = required;
+        if (ids) fallbackReportIds = ids;
       },
       c.question,
       c.conversation ? (userPrompts.get(c.conversation) ?? []) : [],
@@ -128,6 +130,13 @@ for (const c of cases.filter((c) =>
       {
         finalAnswer: () => renderedAnswer,
         requiresPresentation: () => requiresPresentation,
+      fallbackReport: async () => {
+        if (!fallbackReportIds.length || fallbackReportIds.length > 4) return undefined;
+        const present = tools.find(t => t.name === "present_report");
+        if (!present) return undefined;
+        await present.execute("presentation-fallback", { reportIds: fallbackReportIds, view: "full" });
+        return renderedAnswer;
+      },
         observe: async (e) => {
           traffic.push({
             ...e,
@@ -228,6 +237,8 @@ for (const c of cases.filter((c) =>
     inferenceGenerations: usage.filter(
       (u) => (u.input ?? 0) + (u.cacheRead ?? 0) > 0,
     ).length,
+    startedAt: new Date(start).toISOString(),
+    finishedAt: new Date().toISOString(),
     elapsedMs: Date.now() - start,
     answer,
     error,

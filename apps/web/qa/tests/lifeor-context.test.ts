@@ -544,3 +544,25 @@ test("a monetary draft cannot bypass required report presentation", async () => 
     server.stop(true);
   }
 });
+
+test("an ignored report tool choice falls back to verified rendering without leaking the draft", async () => {
+  configure();
+  let requests = 0, fallbacks = 0;
+  const server = fixture(() => { requests++; return answer("WRONG draft with invented money"); });
+  try {
+    const agent = makeAgent("Use reports", [], [], {
+      requiresPresentation: () => true,
+      fallbackReport: async () => { fallbacks++; return "Verified: no recorded appointments matched Noah in this date range."; },
+    });
+    const deltas: string[] = [];
+    agent.subscribe(event => {
+      if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") deltas.push(event.assistantMessageEvent.delta);
+    });
+    await agent.prompt("When is Noah's appointment?");
+    expect(requests).toBe(2);
+    expect(fallbacks).toBe(1);
+    expect(deltas.join("")).not.toContain("WRONG");
+    expect(deltas.join("")).toContain("Verified: no recorded appointments");
+    expect(agent.state.errorMessage).toBeUndefined();
+  } finally { server.stop(true); }
+});

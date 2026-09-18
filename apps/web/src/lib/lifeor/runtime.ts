@@ -98,6 +98,7 @@ async function execute(
     signal.throwIfAborted();
     let renderedAnswer: string | undefined;
     let requiresPresentation = false;
+    let fallbackReportIds: string[] = [];
     const tools = await adapter(
       client,
       store,
@@ -110,8 +111,9 @@ async function execute(
       (answer) => {
         renderedAnswer = answer;
       },
-      (required) => {
+      (required, ids) => {
         requiresPresentation = required;
+        if (ids) fallbackReportIds = ids;
       },
       run.prompt,
       history.filter(r => r.kind !== "compaction").map(r => r.prompt),
@@ -145,6 +147,13 @@ async function execute(
     agent = makeAgent(prompt, tools, messages, {
       finalAnswer: () => renderedAnswer,
       requiresPresentation: () => requiresPresentation,
+      fallbackReport: async () => {
+        if (!fallbackReportIds.length || fallbackReportIds.length > 4) return undefined;
+        const present = tools.find(t => t.name === "present_report");
+        if (!present) return undefined;
+        await present.execute("presentation-fallback", { reportIds: fallbackReportIds, view: "full" });
+        return renderedAnswer;
+      },
       observe,
       usage: (usage) => {
         live.context = usage;

@@ -23,6 +23,7 @@ const observedTokenRatios = new Map<string, number>();
 export type ModelHooks = {
   finalAnswer?: () => string | undefined;
   requiresPresentation?: () => boolean;
+  fallbackReport?: () => Promise<string | undefined>;
   observe?: Observe;
   usage?: (usage: ContextUsage) => void;
   compact?: (before: number, after?: number) => Promise<void>;
@@ -165,9 +166,7 @@ export function makeAgent(
     streamFn: (_model, original, options) => {
       const output = new AssistantMessageEventStream();
       void (async () => {
-        try {
-          const verified = hooks.finalAnswer?.();
-          if (verified !== undefined) {
+        const emitVerified = async (verified: string) => {
             const message: AssistantMessage = {
               role: "assistant",
               content: [{ type: "text", text: verified }],
@@ -218,6 +217,11 @@ export function makeAgent(
             });
             output.push({ type: "done", reason: "stop", message });
             output.end();
+        };
+        try {
+          const verified = hooks.finalAnswer?.();
+          if (verified !== undefined) {
+            await emitVerified(verified);
             return;
           }
           if (++rounds > c.rounds) throw new AppError("TOOL_LIMIT");
@@ -282,8 +286,12 @@ export function makeAgent(
                   requiresPresentation &&
                   event.message.stopReason === "stop"
                 ) {
-                  if (forcePresentation)
-                    throw new AppError("REPORT_PRESENTATION_REQUIRED");
+                  if (forcePresentation) {
+                    const fallback = await hooks.fallbackReport?.();
+                    if (fallback === undefined) throw new AppError("REPORT_PRESENTATION_REQUIRED");
+                    await emitVerified(fallback);
+                    return;
+                  }
                   forcePresentation = true;
                   retry = true;
                   break;

@@ -240,7 +240,7 @@ test("real MCP v2 adapter persists stable write keys and waits for an explicit c
 test("later reports and successful writes invalidate an earlier prepared answer", async () => {
   const handler = createMcpHandler(() => {
     const mcp = new McpServer({ name: "report-fixture", version: "1" });
-    for (const name of ["reports.finances", "reports.present", "reports.read", "records.edit", "legacy.income"]) {
+    for (const name of ["reports.finances", "reports.present", "reports.read", "records.edit", "legacy.income", "life.timeline"]) {
       mcp.registerTool(name, {
         description: name,
         annotations: { readOnlyHint: name !== "records.edit" },
@@ -251,6 +251,7 @@ test("later reports and successful writes invalidate an earlier prepared answer"
         }),
       }, async () => {
         const value = name === "reports.read" ? { reportId: "fresh", rows: ["Remaining category"], nextOffset: null }
+          : name === "life.timeline" ? { reportId: "empty", reportType: "timeline", items: [], matchedCount: 0, itemsComplete: true, queryComplete: true }
           : name === "reports.finances" ? { reportId: "fresh" }
           : name === "reports.present" ? { answer: "Verified facts" } : { saved: true };
         return { resultType: "complete", structuredContent: value,
@@ -272,6 +273,8 @@ test("later reports and successful writes invalidate an earlier prepared answer"
       new AbortController().signal, () => {}, value => { prepared = value; }, value => { required = value; });
     const call = tools.find(t => t.name === "call_tool")!;
     const execute = (name: string) => call.execute(name, { name, arguments: {} });
+    await execute("life.timeline");
+    expect(required).toBe(false);
     const unknown = await execute("legacy.income");
     expect(JSON.stringify(unknown.content)).toContain("UNKNOWN_TOOL");
     const found = await tools.find(t => t.name === "find_tools")!.execute("discover", { query: "legacy.income" });
@@ -397,11 +400,11 @@ test("expense payment accounts require an original user reference even when reco
         annotations: { readOnlyHint: reading },
         inputSchema: fromJsonSchema({ type: "object", properties: {
           datasetId: { type: "string" },
-          ...(reading ? { kind: { type: "string" }, id: { type: "string" } } : { paidFromAccountId: { type: "string" }, requestKey: { type: "string" } }),
-        }, required: reading ? ["datasetId", "kind", "id"] : ["datasetId", "paidFromAccountId", "requestKey"], additionalProperties: false }),
-      }, async () => {
+          ...(reading ? { kind: { type: "string" }, id: { type: "string" } } : { paidFromAccountId: { type: "string" }, expenseAccountId: { type: "string" }, requestKey: { type: "string" } }),
+        }, required: reading ? ["datasetId", "kind", "id"] : ["datasetId", "paidFromAccountId", "expenseAccountId", "requestKey"], additionalProperties: false }),
+      }, async (args) => {
         if (!reading) writes++;
-        const result = reading ? { record: { _id: "cash", name: "Ellis checking" } } : { saved: true };
+        const result = reading ? { record: { _id: args.id, name: args.id === "cash" ? "Ellis checking" : "Ellis groceries" } } : { saved: true };
         return { resultType: "complete", content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       });
     }
@@ -416,6 +419,7 @@ test("expense payment accounts require an original user reference even when reco
     const store: Store = async <T>() => null as T;
     for (const [question, prior, allowed] of [
       ["Record a $50 grocery expense", [], false],
+      ["Record a $50 expense from Ellis checking", [], false],
       ["Record a $50 grocery expense from Ellis checking", [], true],
       ["Record another $50 grocery expense", ["Use Ellis checking for this receipt"], true],
     ] as const) {
@@ -424,9 +428,9 @@ test("expense payment accounts require an original user reference even when reco
       // Verification can reuse an already-read identity rather than trip the read-loop guard.
       for (let i = 0; i < 2; i++) await call.execute(`read-${i}`, { name: "life.read", arguments: { kind: "ledger_account", id: "cash" } });
       const before = writes;
-      const result = await call.execute("expense", { name: "records.recordExpense", arguments: { paidFromAccountId: "cash" } });
+      const result = await call.execute("expense", { name: "records.recordExpense", arguments: { paidFromAccountId: "cash", expenseAccountId: "food" } });
       expect(writes - before).toBe(allowed ? 1 : 0);
-      if (!allowed) expect(JSON.stringify(result.content)).toContain("PAYMENT_ACCOUNT_REQUIRED");
+      if (!allowed) expect(JSON.stringify(result.content)).toContain("_REQUIRED");
     }
   } finally { await client.close(); await server.stop(true); }
 });
