@@ -696,3 +696,18 @@ test("calendar receipt stays fresh after its write and storage failure preserves
   await call.execute("write2", { name: "records.recordEvent", arguments: {} });
   expect(final).toBe("Verified committed appointment despite storage failure");
 });
+
+test("a guessed absolute calendar date cannot replace the user's simple relative phrase", async () => {
+  const dispatched: Record<string, unknown>[] = [];
+  const client = {
+    listTools: async () => ({ tools: [{ name: "records.recordEvent", annotations: { readOnlyHint: false }, inputSchema: { type: "object", properties: { datasetId: { type: "string" }, date: { type: "string" }, dateExpression: { type: "string" }, time: { type: "string" }, requestKey: { type: "string" } }, required: ["datasetId", "time", "requestKey"] } }] }),
+    setRequestHandler: () => {},
+    callTool: async (call: { arguments: Record<string, unknown> }) => { dispatched.push(call.arguments); return { structuredContent: { status: "recorded" } }; },
+  } as unknown as Client;
+  const tools = await adapter(client, (async () => null) as Store, "run", "dataset", new AbortController().signal, () => {}, undefined, undefined, "Record a dentist appointment next Tuesday at 3 PM, America/Chicago.");
+  await tools.find(t => t.name === "call_tool")!.execute("create", { name: "records.recordEvent", arguments: { date: "2026-09-29", time: "15:00" } });
+  expect(dispatched).toHaveLength(1);
+  expect(dispatched[0]).toMatchObject({ dateExpression: "next tuesday", time: "15:00" });
+  expect(dispatched[0].date).toBeUndefined();
+  expect(dispatched[0].requestKey).toBeTruthy();
+});

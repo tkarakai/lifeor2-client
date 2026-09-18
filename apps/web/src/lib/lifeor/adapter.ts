@@ -7,6 +7,7 @@ import type { Store, Run } from "./types";
 import { AppError } from "./config";
 import { canonical, hash } from "./crypto";
 import { normalizeResult, rankTools, ResultPages } from "./tool-context";
+import { calendarReferences, preservingClockTime } from "./calendar-reference";
 import { paymentAccountReferenced, expenseCategoryReferenced } from "./payment-reference";
 
 export function boundArguments(
@@ -242,6 +243,19 @@ export async function adapter(
           datasetId,
           "",
         );
+        if (["records.recordEvent", "records.rescheduleEvent"].includes(tool.name) && "dateExpression" in (tool.inputSchema.properties ?? {}) && question) {
+          const references = calendarReferences(question);
+          if (references.length === 1) {
+            args.dateExpression = references[0];
+            delete args.date;
+          } else if (references.length > 1) {
+            if (typeof args.dateExpression !== "string" || !references.includes(args.dateExpression.toLowerCase().trim())) {
+              return { content: [{ type: "text", text: JSON.stringify({ code: "RELATIVE_DATE_CHOICE_REQUIRED", executed: false, choices: references, message: "This request contains multiple relative dates. Copy the intended dateExpression for this event from the user's words; do not guess an absolute date." }) }], isError: true, details: { isError: true } };
+            }
+            delete args.date;
+          }
+          if (tool.name === "records.rescheduleEvent" && preservingClockTime(question)) args.time = "same";
+        }
         const identityArgs = { ...args };
         delete identityArgs.requestKey;
         const key = hash(`${runId}:${tool.name}:${canonical(identityArgs)}`);
