@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Evaluate CI and set commit status
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const results = {
@@ -87,10 +87,10 @@ jobs:
       backend: ${{ steps.eval.outputs.backend }}
       any_app: ${{ steps.eval.outputs.any_app }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Detect file changes
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         id: filter
         with:
           filters: |
@@ -162,7 +162,7 @@ jobs:
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/build-app
         id: build
@@ -179,7 +179,7 @@ jobs:
     if: needs.changes.outputs.admin == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/build-app
         id: build
@@ -196,7 +196,7 @@ jobs:
     if: needs.changes.outputs.landing == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/build-app
         id: build
@@ -219,40 +219,40 @@ jobs:
     steps:
       - name: Download web artifact
         if: needs.changes.outputs.web == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: web-production-${{ github.sha }}
           path: artifacts/web-production-${{ github.sha }}
 
       - name: Download admin artifact
         if: needs.changes.outputs.admin == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: admin-production-${{ github.sha }}
           path: artifacts/admin-production-${{ github.sha }}
 
       - name: Download landing artifact
         if: needs.changes.outputs.landing == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: landing-production-${{ github.sha }}
           path: artifacts/landing-production-${{ github.sha }}
 
       - name: Attest web artifact
         if: needs.changes.outputs.web == 'true'
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: artifacts/web-production-${{ github.sha }}/web-production.tar.gz
 
       - name: Attest admin artifact
         if: needs.changes.outputs.admin == 'true'
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: artifacts/admin-production-${{ github.sha }}/admin-production.tar.gz
 
       - name: Attest landing artifact
         if: needs.changes.outputs.landing == 'true'
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: artifacts/landing-production-${{ github.sha }}/landing-production.tar.gz
 
@@ -267,7 +267,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/deploy-convex
         with:
@@ -289,7 +289,7 @@ jobs:
       name: staging
       url: ${{ steps.deploy.outputs.deployment-url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/deploy-vercel
         id: deploy
@@ -317,7 +317,7 @@ jobs:
       name: staging
       url: ${{ steps.deploy.outputs.deployment-url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/deploy-vercel
         id: deploy
@@ -345,7 +345,7 @@ jobs:
       name: staging
       url: ${{ steps.deploy.outputs.deployment-url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/deploy-vercel
         id: deploy
@@ -370,7 +370,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Health check deployed apps
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const apps = [];
@@ -434,7 +434,7 @@ jobs:
       needs.changes.outputs.any_app == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Create deployment tag
         run: |
