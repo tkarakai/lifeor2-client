@@ -436,3 +436,133 @@ test("provider calibration also reserves room in each summary request", async ()
     ),
   ).toBe(true);
 });
+
+test("verified report finishes the real agent loop without another model inference", async () => {
+  configure();
+  let requests = 0,
+    rendered: string | undefined;
+  const server = fixture(() => {
+    requests++;
+    return answer("", true);
+  });
+  const observed: unknown[] = [];
+  try {
+    const agent = makeAgent(
+      "Use the report",
+      [
+        {
+          name: "read",
+          label: "Read",
+          description: "Get verified facts",
+          parameters: Type.Object({}),
+          execute: async () => {
+            rendered =
+              "Cash paid: **40000.00 USD**. Capital improvements: **55000.00 USD**.";
+            return {
+              content: [{ type: "text", text: "Report presented" }],
+              details: {},
+            };
+          },
+        },
+      ],
+      [],
+      {
+        finalAnswer: () => rendered,
+        observe: async (event) => {
+          observed.push(event);
+        },
+      },
+    );
+    await agent.prompt("What did the project cost?");
+    expect(requests).toBe(1);
+    const final = agent.state.messages.at(-1);
+    expect(final?.role).toBe("assistant");
+    if (final?.role === "assistant") {
+      expect(final.content).toEqual([{ type: "text", text: rendered! }]);
+      expect(final.usage.totalTokens).toBe(0);
+      expect(final.stopReason).toBe("stop");
+    }
+    expect(JSON.stringify(observed)).toContain(
+      "Verified report rendering (no inference)",
+    );
+  } finally {
+    server.stop(true);
+  }
+});
+
+test("a monetary draft cannot bypass required report presentation", async () => {
+  configure();
+  let requests = 0,
+    rendered: string | undefined;
+  const server = fixture((body) => {
+    requests++;
+    if (requests === 1)
+      return answer("WRONG unverified amounts must not reach the user");
+    expect(body.tool_choice).toEqual({
+      type: "function",
+      function: { name: "present_report" },
+    });
+    return new Response(
+      `data: ${JSON.stringify({ id: "forced", choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "verified", type: "function", function: { name: "present_report", arguments: '{"reportIds":["report-a"]}' } }] }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: "forced", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`,
+      { headers: { "content-type": "text/event-stream" } },
+    );
+  });
+  try {
+    const agent = makeAgent(
+      "Use reports",
+      [
+        {
+          name: "present_report",
+          label: "Present",
+          description: "Verified report",
+          parameters: Type.Object({ reportIds: Type.Array(Type.String()) }),
+          execute: async () => {
+            rendered = "Correct: 55000.00 USD";
+            return {
+              content: [{ type: "text", text: "presented" }],
+              details: {},
+            };
+          },
+        },
+      ],
+      [],
+      { requiresPresentation: () => true, finalAnswer: () => rendered },
+    );
+    const deltas: string[] = [];
+    agent.subscribe((event) => {
+      if (
+        event.type === "message_update" &&
+        event.assistantMessageEvent.type === "text_delta"
+      )
+        deltas.push(event.assistantMessageEvent.delta);
+    });
+    await agent.prompt("What did it cost?");
+    expect(requests).toBe(2);
+    expect(deltas.join("")).not.toContain("WRONG");
+    expect(deltas.join("")).toContain("Correct: 55000.00 USD");
+  } finally {
+    server.stop(true);
+  }
+});
+
+test("an ignored report tool choice falls back to verified rendering without leaking the draft", async () => {
+  configure();
+  let requests = 0, fallbacks = 0;
+  const server = fixture(() => { requests++; return answer("WRONG draft with invented money"); });
+  try {
+    const agent = makeAgent("Use reports", [], [], {
+      requiresPresentation: () => true,
+      fallbackReport: async () => { fallbacks++; return "Verified: no recorded appointments matched Noah in this date range."; },
+    });
+    const deltas: string[] = [];
+    agent.subscribe(event => {
+      if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") deltas.push(event.assistantMessageEvent.delta);
+    });
+    await agent.prompt("When is Noah's appointment?");
+    expect(requests).toBe(2);
+    expect(fallbacks).toBe(1);
+    expect(deltas.join("")).not.toContain("WRONG");
+    expect(deltas.join("")).toContain("Verified: no recorded appointments");
+    expect(agent.state.errorMessage).toBeUndefined();
+  } finally { server.stop(true); }
+});

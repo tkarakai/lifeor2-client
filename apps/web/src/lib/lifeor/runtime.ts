@@ -5,7 +5,7 @@ import { historyMessages } from "./context";
 import { observer } from "./observation";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { makeAgent } from "./model";
-import { adapter } from "./adapter";
+import { adapter, loadWorkspaceContext } from "./adapter";
 import { authorizedDatasets, connectMcp } from "./mcp";
 import { AppError, errors, modelConfig, publicError } from "./config";
 import { registry } from "./registry";
@@ -96,6 +96,9 @@ async function execute(
       datasets,
     });
     signal.throwIfAborted();
+    let renderedAnswer: string | undefined;
+    let requiresPresentation = false;
+    let fallbackReportIds: string[] = [];
     const tools = await adapter(
       client,
       store,
@@ -105,6 +108,15 @@ async function execute(
       (value) => {
         live.stage = value;
       },
+      (answer) => {
+        renderedAnswer = answer;
+      },
+      (required, ids) => {
+        requiresPresentation = required;
+        if (ids) fallbackReportIds = ids;
+      },
+      run.prompt,
+      history.filter(r => r.kind !== "compaction").map(r => r.prompt),
     );
     // A transport failure ends execution even if Pi would otherwise feed it back to the model.
     for (const tool of tools) {
@@ -129,8 +141,19 @@ async function execute(
       conversation.datasetName,
       conversation.datasetId,
       client.getInstructions(),
+      undefined,
+      await loadWorkspaceContext(tools),
     );
     agent = makeAgent(prompt, tools, messages, {
+      finalAnswer: () => renderedAnswer,
+      requiresPresentation: () => requiresPresentation,
+      fallbackReport: async () => {
+        if (!fallbackReportIds.length || fallbackReportIds.length > 4) return undefined;
+        const present = tools.find(t => t.name === "present_report");
+        if (!present) return undefined;
+        await present.execute("presentation-fallback", { reportIds: fallbackReportIds, view: "full" });
+        return renderedAnswer;
+      },
       observe,
       usage: (usage) => {
         live.context = usage;

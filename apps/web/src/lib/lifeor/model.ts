@@ -5,6 +5,8 @@ import {
 } from "@earendil-works/pi-agent-core";
 import type {
   Model,
+  AssistantMessage,
+  AssistantMessageEvent,
   Context,
   Message,
   SimpleStreamOptions,
@@ -19,6 +21,9 @@ import type { ContextUsage, Observe } from "./types";
 const observedTokenRatios = new Map<string, number>();
 
 export type ModelHooks = {
+  finalAnswer?: () => string | undefined;
+  requiresPresentation?: () => boolean;
+  fallbackReport?: () => Promise<string | undefined>;
   observe?: Observe;
   usage?: (usage: ContextUsage) => void;
   compact?: (before: number, after?: number) => Promise<void>;
@@ -58,6 +63,7 @@ export function makeAgent(
     context: Context,
     options: SimpleStreamOptions,
     channel: "model" | "compaction",
+    forcePresentation = false,
   ) {
     const exchange = randomUUID();
     return {
@@ -69,7 +75,7 @@ export function makeAgent(
         maxRetries: 0,
         timeoutMs: c.timeout,
         onPayload: async (payload) => {
-          const effectivePayload =
+          let effectivePayload =
             typeof payload === "object" &&
             payload !== null &&
             ["true", "false"].includes(process.env.LLM_THINKING ?? "")
@@ -80,6 +86,18 @@ export function makeAgent(
                   },
                 }
               : payload;
+          if (
+            forcePresentation &&
+            effectivePayload &&
+            typeof effectivePayload === "object"
+          )
+            effectivePayload = {
+              ...effectivePayload,
+              tool_choice: {
+                type: "function",
+                function: { name: "present_report" },
+              },
+            };
           await observe({
             exchange,
             channel,
@@ -148,7 +166,64 @@ export function makeAgent(
     streamFn: (_model, original, options) => {
       const output = new AssistantMessageEventStream();
       void (async () => {
+        const emitVerified = async (verified: string) => {
+            const message: AssistantMessage = {
+              role: "assistant",
+              content: [{ type: "text", text: verified }],
+              api: model.api,
+              provider: model.provider,
+              model: model.id,
+              stopReason: "stop",
+              timestamp: Date.now(),
+              usage: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 0,
+                cost: {
+                  input: 0,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  total: 0,
+                },
+              },
+            };
+            await observe({
+              exchange: randomUUID(),
+              channel: "model",
+              direction: "response",
+              label: "Verified report rendering (no inference)",
+              body: message,
+            });
+            output.push({ type: "start", partial: message });
+            output.push({
+              type: "text_start",
+              contentIndex: 0,
+              partial: message,
+            });
+            output.push({
+              type: "text_delta",
+              contentIndex: 0,
+              delta: verified,
+              partial: message,
+            });
+            output.push({
+              type: "text_end",
+              contentIndex: 0,
+              content: verified,
+              partial: message,
+            });
+            output.push({ type: "done", reason: "stop", message });
+            output.end();
+        };
         try {
+          const verified = hooks.finalAnswer?.();
+          if (verified !== undefined) {
+            await emitVerified(verified);
+            return;
+          }
           if (++rounds > c.rounds) throw new AppError("TOOL_LIMIT");
           hooks.usage?.(
             estimatedUsage({
@@ -158,12 +233,17 @@ export function makeAgent(
           );
           memory.setTokenRatio(tokenRatio);
           let context = await memory.prepare(original, options?.signal);
-          for (let attempt = 0; attempt < 2; attempt++) {
+          let forcePresentation = false;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const held: AssistantMessageEvent[] = [];
+            const requiresPresentation =
+              hooks.requiresPresentation?.() === true;
             hooks.usage?.(estimatedUsage(context));
             const { stream, exchange } = generate(
               context,
               { ...options, maxTokens: c.output },
               "model",
+              forcePresentation,
             );
             let emittedContent = false;
             let retry = false;
@@ -202,6 +282,20 @@ export function makeAgent(
                   label: "Generation · assembled response",
                   body: event.message,
                 });
+                if (
+                  requiresPresentation &&
+                  event.message.stopReason === "stop"
+                ) {
+                  if (forcePresentation) {
+                    const fallback = await hooks.fallbackReport?.();
+                    if (fallback === undefined) throw new AppError("REPORT_PRESENTATION_REQUIRED");
+                    await emitVerified(fallback);
+                    return;
+                  }
+                  forcePresentation = true;
+                  retry = true;
+                  break;
+                }
                 // A length-limited tool call must never be dispatched.
                 if (event.message.stopReason === "length")
                   event.message.content = event.message.content.filter(
@@ -247,9 +341,11 @@ export function makeAgent(
                     }),
                 );
               }
-              output.push(event);
+              if (requiresPresentation) held.push(event);
+              else output.push(event);
             }
             if (!retry) {
+              for (const event of held) output.push(event);
               output.end();
               return;
             }

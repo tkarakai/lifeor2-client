@@ -7,6 +7,8 @@ import type { Store, Run } from "./types";
 import { AppError } from "./config";
 import { canonical, hash } from "./crypto";
 import { normalizeResult, rankTools, ResultPages } from "./tool-context";
+import { calendarReferences, preservingClockTime } from "./calendar-reference";
+import { paymentAccountReferenced, expenseCategoryReferenced } from "./payment-reference";
 
 export function boundArguments(
   schema: Record<string, unknown>,
@@ -31,6 +33,10 @@ export async function adapter(
   datasetId: string,
   signal: AbortSignal,
   stage: (value: string) => void,
+  finishReport?: (answer: string | undefined) => void,
+  requirePresentation?: (required: boolean, reportIds?: string[]) => void,
+  question?: string,
+  priorUserPrompts: string[] = [],
 ): Promise<AgentTool[]> {
   let cursor: string | undefined;
   const catalog: Awaited<ReturnType<Client["listTools"]>>["tools"] = [];
@@ -45,7 +51,8 @@ export async function adapter(
   const tools = catalog.filter(
     (t) =>
       "datasetId" in (t.inputSchema.properties ?? {}) &&
-      t.name !== "datasets.select",
+      t.name !== "datasets.select" &&
+      typeof t._meta?.["lifeor2/replacedBy"] !== "string",
   );
   const ajv = new Ajv({ strict: false, allErrors: true });
   const validators = new Map(
@@ -123,7 +130,39 @@ export async function adapter(
   const pages = new ResultPages();
   const discoveries = new Map<string, number>();
   const reads = new Map<string, number>();
+  const accountNames = new Map<string, string>();
+  let reportIds: string[] = [];
+  let recordsChanged = false;
+  const freshReportIds = new Set<string>();
+  let awaitingClarification = false;
+  const unresolvedAccount = async (operation: string, accountId: string) => {
+    const error = {
+      isError: true, code: "ACCOUNT_REFERENCE_UNRESOLVED", operation, accountId, executed: false,
+      message: "The supplied account reference is not a verified ledger-account ID. Resolve the account already named by the user with life.search(kind=account), then retry with its returned stable ID. An account name or last digits are not a database ID. Ask the user only if their reference is missing or ambiguous. The requested operation was not executed.",
+    };
+    await event("tool_error", "Resolve the supplied account reference", error);
+    return { content: [{ type: "text" as const, text: JSON.stringify(error) }], isError: true, details: { isError: true } };
+  };
   const exposed: AgentTool[] = [
+    {
+      name: "ask_user",
+      label: "Ask for missing information",
+      description: "Finish this turn with one concise question for missing consequential information or an ambiguous identity. Use immediately when a required payment account, expense purpose, date, timezone or record choice was not supplied. Database searches cannot establish an unspecified user choice. This asks a question and does not change records.",
+      parameters: Type.Object({ question: Type.String({ minLength: 3, maxLength: 600 }) }),
+      execute: async (_id, args) => {
+        signal.throwIfAborted();
+        const question = (args as { question: string }).question.trim();
+        if (question.length < 3 || question.length > 600) throw new AppError("INVALID_INPUT");
+        awaitingClarification = true;
+        await event("clarification", "Missing information", { question });
+        if (finishReport) {
+          reportIds = [];
+          requirePresentation?.(false, []);
+          finishReport(question);
+        }
+        return { content: [{ type: "text", text: question }], details: { clarification: true } };
+      },
+    },
     {
       name: "find_tools",
       label: "Find LifeOR2 tools",
@@ -144,7 +183,11 @@ export async function adapter(
           );
           return {
             name: t.name,
-            invocation: { tool: "call_tool", name: t.name, arguments: "Supply the fields from inputSchema inside arguments." },
+            invocation: {
+              tool: "call_tool",
+              name: t.name,
+              arguments: "Supply the fields from inputSchema inside arguments.",
+            },
             description: t.description,
             inputSchema: schema,
             annotations: t.annotations,
@@ -183,15 +226,36 @@ export async function adapter(
           arguments: Record<string, unknown>;
         };
         signal.throwIfAborted();
+        if (awaitingClarification) return { content: [{ type: "text", text: "Waiting for the user to answer the clarification. No further operation was executed." }], isError: true, details: { isError: true } };
         const tool = tools.find((t) => t.name === input.name);
-        if (!tool)
-          throw new Error("Tool not authorized. Search the catalog first.");
+        if (!tool) {
+          const suggestions = rankTools(tools, `${input.name} ${Object.keys(input.arguments).join(" ")}`);
+          return { content: [{ type: "text", text: JSON.stringify({
+            isError: true, code: "UNKNOWN_TOOL", executed: false,
+            message: "Use an exact authorized tool name. No operation was executed.",
+            suggestions: suggestions.map(t => ({ name: t.name, description: t.description })),
+            next: "Use a matching native tool already provided, or find_tools with an exact suggested name to obtain its schema.",
+          }) }], isError: true, details: { isError: true } };
+        }
         const args = boundArguments(
           tool.inputSchema,
           input.arguments,
           datasetId,
           "",
         );
+        if (["records.recordEvent", "records.rescheduleEvent"].includes(tool.name) && "dateExpression" in (tool.inputSchema.properties ?? {}) && question) {
+          const references = calendarReferences(question);
+          if (references.length === 1) {
+            args.dateExpression = references[0];
+            delete args.date;
+          } else if (references.length > 1) {
+            if (typeof args.dateExpression !== "string" || !references.includes(args.dateExpression.toLowerCase().trim())) {
+              return { content: [{ type: "text", text: JSON.stringify({ code: "RELATIVE_DATE_CHOICE_REQUIRED", executed: false, choices: references, message: "This request contains multiple relative dates. Copy the intended dateExpression for this event from the user's words; do not guess an absolute date." }) }], isError: true, details: { isError: true } };
+            }
+            delete args.date;
+          }
+          if (tool.name === "records.rescheduleEvent" && preservingClockTime(question)) args.time = "same";
+        }
         const identityArgs = { ...args };
         delete identityArgs.requestKey;
         const key = hash(`${runId}:${tool.name}:${canonical(identityArgs)}`);
@@ -221,7 +285,58 @@ export async function adapter(
             isError: true,
             details: { isError: true },
           };
+        if (recordsChanged && tool.name === "reports.present" && Array.isArray(args.reportIds) && args.reportIds.some(id => typeof id !== "string" || !freshReportIds.has(id))) {
+          await event("blocked", "A saved report predates the changes in this turn", { reportIds: args.reportIds });
+          return { content: [{ type: "text", text: JSON.stringify({ code: "STALE_REPORT_AFTER_WRITE", message: "Records changed in this turn. Confirm the write from its returned result, or run a fresh query before presenting updated data. Reading an old saved report does not refresh it.", freshReportIds: [...freshReportIds] }) }], isError: true, details: { isError: true } };
+        }
         const reading = tool.annotations?.readOnlyHint === true;
+        if (tool.name === "reports.cashProjection" && Array.isArray(args.additionalMovements)) {
+          for (const movement of args.additionalMovements) {
+            const accountId = String((movement as { accountId?: unknown }).accountId);
+            if (!accountNames.has(accountId) && tools.some(t => t.name === "life.read"))
+              await exposed.find(t => t.name === "call_tool")!.execute(`${_callId}-scenario-account`, { name: "life.read", arguments: { kind: "ledger_account", id: accountId } });
+            const name = accountNames.get(accountId);
+            if (!name) return unresolvedAccount(tool.name, accountId);
+            if (!paymentAccountReferenced(name, accountId, [...priorUserPrompts, question ?? ""])) {
+              const clarification = { status: "needs_input", kind: "scenario_account", question: "Which account should the hypothetical one-off payment or receipt affect?", executed: false };
+              awaitingClarification = true;
+              reportIds = [];
+              requirePresentation?.(false, []);
+              await event("clarification", "Choose the account for this hypothetical scenario", clarification);
+              finishReport?.(clarification.question);
+              return { content: [{ type: "text", text: JSON.stringify(clarification) }], details: {} };
+            }
+          }
+        }
+        if (tool.name === "records.recordExpense") {
+          const accountId = String(args.paidFromAccountId);
+          if (!accountNames.has(accountId)) {
+            if (!tools.some(t => t.name === "life.read")) throw new Error("Payment-account verification is unavailable");
+            await exposed.find(t => t.name === "call_tool")!.execute(`${_callId}-payment-reference`, {
+              name: "life.read", arguments: { kind: "ledger_account", id: accountId },
+            });
+          }
+          const name = accountNames.get(accountId);
+          if (!name) return unresolvedAccount(tool.name, accountId);
+          if (!paymentAccountReferenced(name, accountId, [...priorUserPrompts, question ?? ""])) {
+            const error = { isError: true, code: "PAYMENT_ACCOUNT_REQUIRED", executed: false,
+              message: "Ask the user which payment account to use. The selected account was not identified in the available original user messages. Database records and model-generated memory do not supply that missing choice. No expense was posted." };
+            await event("tool_error", "Payment account needs user input", { tool: tool.name, ...error });
+            return { content: [{ type: "text", text: JSON.stringify(error) }], isError: true, details: { isError: true } };
+          }
+        }
+        if (tool.name === "records.recordExpense" && typeof args.expenseAccountId === "string") {
+          const categoryId = args.expenseAccountId;
+          if (!accountNames.has(categoryId)) await exposed.find(t => t.name === "call_tool")!.execute(`${_callId}-category-reference`, { name: "life.read", arguments: { kind: "ledger_account", id: categoryId } });
+          const name = accountNames.get(categoryId);
+          if (!name) return unresolvedAccount(tool.name, categoryId);
+          if (!expenseCategoryReferenced(name, categoryId, [...priorUserPrompts, question ?? ""])) {
+            const error = { isError: true, code: "EXPENSE_CATEGORY_REQUIRED", executed: false,
+              message: "Ask what the expense was for or which expense category to use. The selected category was not identified in the available original user messages. An account discovered in the database does not supply that missing purpose. No expense was posted." };
+            await event("tool_error", "Expense category needs user input", { tool: tool.name, ...error });
+            return { content: [{ type: "text", text: JSON.stringify(error) }], isError: true, details: { isError: true } };
+          }
+        }
         const readCount = (reads.get(key) ?? 0) + 1;
         if (reading) reads.set(key, readCount);
         if (reading && readCount > 2)
@@ -235,7 +350,7 @@ export async function adapter(
             details: {},
           };
         // A mutation can change the evidence; allow fresh verification reads afterward.
-        if (!reading) reads.clear();
+        if (!reading) { reads.clear(); accountNames.clear(); }
         current = { name: tool.name, args };
         stage(reading ? "Reading records" : "Updating records");
         // Persist the exact write identity BEFORE dispatch, including ambiguous failures.
@@ -255,7 +370,75 @@ export async function adapter(
             `${tool.title ?? tool.name}: ${result.isError ? "not completed" : "completed"}`,
             result,
           );
-          const text = pages.save(normalizeResult(result));
+          const normalized = normalizeResult(result);
+          if (tool.name === "life.read" && args.kind === "ledger_account" && !result.isError && normalized && typeof normalized === "object" && "record" in normalized) {
+            const record = normalized.record as { _id?: string; name?: string };
+            if (record._id === args.id && typeof record.name === "string") accountNames.set(record._id, record.name);
+          }
+          if (
+            tool.name === "reports.present" &&
+            !result.isError &&
+            normalized &&
+            typeof normalized === "object" &&
+            "answer" in normalized &&
+            typeof normalized.answer === "string"
+          )
+            finishReport?.(normalized.answer);
+          if (!result.isError && !reading) {
+            reportIds = [];
+            freshReportIds.clear();
+            if (!(normalized && typeof normalized === "object" && "status" in normalized && normalized.status === "needs_input")) recordsChanged = true;
+            requirePresentation?.(false, []);
+            finishReport?.(undefined);
+          }
+          if (
+            !result.isError &&
+            ["records.recordEvent", "records.rescheduleEvent", "life.timeline"].includes(tool.name) &&
+            normalized && typeof normalized === "object" &&
+            "status" in normalized && normalized.status === "needs_input" &&
+            "kind" in normalized && ["ambiguous_local_time", "workspace_scope"].includes(String(normalized.kind)) &&
+            "question" in normalized && typeof normalized.question === "string" &&
+            normalized.question.length <= 600
+          ) {
+            // Service-computed clock/scope clarifications are final answers,
+            // not material for the model to guess missing settings.
+            awaitingClarification = true;
+            await event("clarification", normalized.kind === "workspace_scope" ? "Choose household and calendar defaults" : "Choose the recorded clock occurrence", normalized);
+            finishReport?.(normalized.question);
+          }
+          if (
+            !result.isError &&
+            normalized &&
+            typeof normalized === "object" &&
+            "reportId" in normalized &&
+            typeof normalized.reportId === "string"
+          ) {
+            // A later report in the same tool batch must be considered before
+            // finalizing an answer that was prepared earlier in that batch.
+            finishReport?.(undefined);
+            const record = normalized as Record<string, unknown>;
+            if (tool.name !== "reports.read") freshReportIds.add(normalized.reportId);
+            const emptyTimeline = record.reportType === "timeline" && record.queryComplete === true && record.itemsComplete === true && record.matchedCount === 0;
+            // An empty calendar result has no monetary facts to protect. It must
+            // not prevent an ordinary absence explanation or unsupported-request response.
+            if (!emptyTimeline && (!recordsChanged || freshReportIds.has(normalized.reportId))) reportIds = [...new Set([...reportIds, normalized.reportId])];
+            requirePresentation?.(reportIds.length > 0, reportIds);
+          }
+          if (!result.isError && !reading && ["records.recordEvent", "records.rescheduleEvent"].includes(tool.name) && normalized && typeof normalized === "object" && "committedAnswer" in normalized && typeof normalized.committedAnswer === "string") {
+            // A committed write must remain confirmed even if optional report-file storage fails.
+            finishReport?.(normalized.committedAnswer);
+          }
+          // The verified answer is emitted separately as the assistant message.
+          // Keep its handles here instead of putting a second full copy into
+          // every later model prompt. The audited MCP result above stays intact.
+          const presented = tool.name === "reports.present" && finishReport && !result.isError &&
+            normalized && typeof normalized === "object" && "answer" in normalized && typeof normalized.answer === "string";
+          const text = pages.save(presented ? {
+            presented: true,
+            datasetId,
+            reportIds: "reportIds" in normalized ? normalized.reportIds : args.reportIds ?? [],
+            note: "The verified report is displayed as the assistant answer. These saved snapshot IDs can be inspected or presented again; they are not a fresh query.",
+          } : normalized);
           return {
             content: [{ type: "text", text }],
             isError: !!result.isError,
@@ -278,7 +461,7 @@ export async function adapter(
       name: "read_result",
       label: "Read saved result",
       description:
-        "Read a page or JSON-pointer field from a large tool result saved during this run. Does not repeat the server operation. Follow nextOffset; do not assume a partial page is complete.",
+        "Read a saved result or report without re-querying transactions. resultId accepts either a temporary resultId or a saved reportId. For report rows use path=/rows and offset; for other large results use returned JSON-pointer paths. Follow nextOffset. For a final category breakdown, prefer present_report(view=by_account), which renders all saved rows directly.",
       parameters: Type.Object({
         resultId: Type.String(),
         path: Type.Optional(Type.String()),
@@ -288,6 +471,12 @@ export async function adapter(
         signal.throwIfAborted();
         const a = args as { resultId: string; path?: string; offset?: number };
         try {
+          const reportId = pages.reportId(a.resultId) ?? (!pages.has(a.resultId) ? a.resultId : undefined);
+          if (reportId && (!a.path || ["/rows", "/items", "/actuals/rows"].includes(a.path)) && tools.some(t => t.name === "reports.read")) {
+            return exposed.find(t => t.name === "call_tool")!.execute(_id, {
+              name: "reports.read", arguments: { reportId, offset: a.offset ?? 0 },
+            });
+          }
           return {
             content: [
               { type: "text", text: pages.read(a.resultId, a.path, a.offset) },
@@ -312,14 +501,74 @@ export async function adapter(
   // The server selects a small task-oriented entry surface. Keep the discovered
   // schema authoritative; these wrappers use the same validated/audited path.
   const call = exposed.find((t) => t.name === "call_tool")!;
+  const presentationTool = tools.find((t) => t.name === "reports.present");
+  if (presentationTool && finishReport)
+    exposed.push({
+      name: "present_report",
+      label: "Present verified report",
+      description:
+        "Finish this answer by displaying verified report facts directly. Supply their reportIds and choose a view: by_period for monthly/yearly breakdowns, by_account for categories, summary otherwise. If evidence is related but does not answer the requested fact, set conclusion=insufficient_evidence: it states that limitation and preserves the evidence. Do not search endlessly or substitute a different fact. For multi-part answers combine up to four report IDs. Saved report details support offset and limit (default 50); totals always cover all matching rows. Do not write your own monetary summary instead.",
+      parameters: Type.Object({
+        reportIds: Type.Array(Type.String(), { minItems: 1, maxItems: 4 }),
+        ...(presentationTool.inputSchema.properties?.conclusion ? { conclusion: Type.Optional(Type.Literal("insufficient_evidence", {
+          description: "The retrieved evidence does not establish the requested answer. State that limitation, without claiming global absence, and show unchanged verified evidence.",
+        })) } : {}),
+        offset: Type.Optional(Type.Integer({ minimum: 0 })),
+        limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+        ...(presentationTool.inputSchema.properties?.order ? { order: Type.Optional(Type.Union([Type.Literal("amount_desc"), Type.Literal("amount_asc")], {
+          description: "For largest/smallest financial amounts, rank before limiting: by_account ranks categories; by_period ranks periods (profit_loss uses net income). Select one currency and comparable types.",
+        })) } : {}),
+        view: Type.Optional(
+          Type.Union([
+            Type.Literal("summary"),
+            Type.Literal("by_period"),
+            Type.Literal("by_account"),
+            Type.Literal("full"),
+          ]),
+        ),
+      }),
+      execute: (id, args, signal, update) =>
+        call.execute(
+          id,
+          { name: "reports.present", arguments: args },
+          signal,
+          update,
+        ),
+    });
   const primary = tools
     .filter(
       (t) =>
         t.annotations?.readOnlyHint === true &&
         t._meta?.["lifeor2/primary"] === true,
     )
-    .slice(0, 4);
-  for (const tool of primary) {
+    .slice(0, 12);
+  // Prefetch at most two focused edit schemas using the same relevance ranking.
+  // This only improves discovery; normal validation, scope and audit still apply.
+  const focusedWrites = new Set([
+    "records.recordEvent",
+    "records.rescheduleEvent",
+    "records.recordExpense",
+    "records.changeSchedule",
+    "entities.create",
+    "entities.update",
+    "details.append",
+  ]);
+  const suggestedWrites = question
+    ? rankTools(
+        tools.filter(
+          (t) =>
+            t.annotations?.readOnlyHint === false && focusedWrites.has(t.name),
+        ),
+        question,
+      ).slice(0, 2)
+    : [];
+  // Relevant source schemas avoid a nested generic-call envelope for ordinary
+  // profile/note questions. Keep this small and grant-derived, like edit prefetch.
+  const sourceReads = new Set(["details.read", "notes.search"]);
+  const suggestedReads = question
+    ? rankTools(tools.filter(t => t.annotations?.readOnlyHint === true), question).filter(t => sourceReads.has(t.name)).slice(0, 2)
+    : [];
+  for (const tool of [...primary, ...suggestedReads, ...suggestedWrites].filter((t, i, all) => all.findIndex(other => other.name === t.name) === i)) {
     const schema = structuredClone(tool.inputSchema);
     delete schema.properties?.datasetId;
     delete schema.properties?.requestKey;
@@ -332,13 +581,25 @@ export async function adapter(
       description: tool.description ?? tool.name,
       parameters: schema as AgentTool["parameters"],
       execute: (id, args, signal, update) =>
-        call.execute(
-          id,
-          { name: tool.name, arguments: args },
-          signal,
-          update,
-        ),
+        call.execute(id, { name: tool.name, arguments: args }, signal, update),
     });
   }
   return exposed;
+}
+
+/** Deterministic bootstrap saves a model round for local dates and household scope. */
+export async function loadWorkspaceContext(
+  tools: AgentTool[],
+): Promise<unknown> {
+  const context = tools.find((t) => t.name === "life_context");
+  if (!context) return undefined;
+  const result = await context.execute(randomUUID(), {});
+  const block = result.content.find((p) => p.type === "text");
+  if (!block || block.type !== "text" || Buffer.byteLength(block.text) > 8000)
+    return undefined;
+  try {
+    return JSON.parse(block.text);
+  } catch {
+    return undefined;
+  }
 }
