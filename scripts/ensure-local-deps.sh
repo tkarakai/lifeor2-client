@@ -141,23 +141,3 @@ if [ "$CHANGES_MADE" = true ]; then
 else
     log "${GREEN}✔ All directories are properly local${NC}"
 fi
-
-# ============================================================
-# ENSURE PLAYWRIGHT BROWSERS ARE INSTALLED
-# ============================================================
-# Check in apps that have Playwright
-for app_dir in apps/web apps/admin; do
-    if [ -d "$app_dir/node_modules/@playwright/test" ] || [ -d "node_modules/@playwright/test" ]; then
-        log "${BLUE}Checking Playwright browsers...${NC}"
-
-        PLAYWRIGHT_OUTPUT=$(npx playwright install chromium 2>&1)
-
-        if echo "$PLAYWRIGHT_OUTPUT" | grep -q "Downloading"; then
-            log_always "${GREEN}✔ Playwright chromium installed${NC}"
-            CHANGES_MADE=true
-        else
-            log "${GREEN}✔ Playwright browsers ready${NC}"
-        fi
-        break  # Only need to install once
-    fi
-done

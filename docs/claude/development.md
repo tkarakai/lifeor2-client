@@ -65,6 +65,7 @@ bun run test:watch           # Watch mode for development (run from apps/web)
 bun run test:convex          # Run Convex backend tests (packages/backend)
 
 # Playwright E2E Tests
+(cd apps/web && bunx playwright install chromium)  # One-time browser setup
 bun run test:e2e             # Run all E2E tests
 
 # Run everything
@@ -111,8 +112,11 @@ cd apps/web && bunx vitest run --reporter=verbose
 ```
 
 **Playwright browser not installed:**
+
+Browsers are only required for E2E tests. Normal development startup does not install them.
+
 ```bash
-npx playwright install chromium
+cd apps/web && bunx playwright install chromium
 ```
 
 **Convex sync issues:**
