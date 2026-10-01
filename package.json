@@ -48,7 +48,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "convex": "1.31.7",
-    "next": "16.1.6"
+    "next": "16.3.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
