@@ -31,11 +31,11 @@ jobs:
 
       - name: Checkout
         if: ${{ !env.ACT }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Detect file changes
         if: ${{ !env.ACT }}
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         id: filter
         with:
           filters: |
@@ -79,7 +79,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.should_run == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-bun
 
       - name: Run Bun tests
@@ -111,7 +111,7 @@ jobs:
           fi
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: ${{ always() && !env.ACT }}
         continue-on-error: true
         with:
@@ -135,7 +135,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.should_run == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-bun
 
       - name: Build
@@ -163,7 +163,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-playwright
         with:
@@ -174,7 +174,7 @@ jobs:
       # "403 API rate limit exceeded" and the webServer never starts. Cache the
       # binary so at most the first run downloads it.
       - name: Cache Convex local backend
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.convex
           key: ${{ runner.os }}-convex-backend-${{ hashFiles('bun.lock') }}
@@ -203,7 +203,7 @@ jobs:
           cat .next-web.log 2>/dev/null || echo "No Next.js log found"
 
       - name: Upload Playwright report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: ${{ always() && !env.ACT }}
         continue-on-error: true
         with:
@@ -212,7 +212,7 @@ jobs:
           retention-days: 7
 
       - name: Upload visual snapshots
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: ${{ always() && !env.ACT }}
         continue-on-error: true
         with:
@@ -241,11 +241,11 @@ jobs:
     if: ${{ always() && needs.e2e.result != 'skipped' }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-bun
 
       - name: Download blob reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: apps/web/all-blob-reports
           pattern: blob-report-web-*
@@ -257,7 +257,7 @@ jobs:
           PLAYWRIGHT_HTML_OUTPUT_DIR: qa/playwright-report
 
       - name: Upload merged report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         continue-on-error: true
         with:
           name: playwright-report-web
