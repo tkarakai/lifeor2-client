@@ -47,7 +47,7 @@ jobs:
           exit 1
 
       - name: Verify previous deployment exists
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const sha = '${{ inputs.target_sha }}';
@@ -112,7 +112,7 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.target_sha }}
       - uses: ./.github/actions/setup-bun
@@ -129,7 +129,7 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.target_sha }}
       - uses: ./.github/actions/setup-bun
@@ -146,7 +146,7 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.target_sha }}
       - uses: ./.github/actions/setup-bun
@@ -165,7 +165,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.target_sha }}
       - uses: ./.github/actions/setup-bun
@@ -185,7 +185,7 @@ jobs:
       name: ${{ inputs.environment }}
       url: ${{ steps.deploy.outputs.deployment-url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.target_sha }}
       - uses: ./.github/actions/setup-bun
@@ -211,7 +211,7 @@ jobs:
       name: ${{ inputs.environment }}
       url: ${{ steps.deploy.outputs.deployment-url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.target_sha }}
       - uses: ./.github/actions/setup-bun
@@ -237,7 +237,7 @@ jobs:
       name: ${{ inputs.environment }}
       url: ${{ steps.deploy.outputs.deployment-url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.target_sha }}
       - uses: ./.github/actions/setup-bun
@@ -259,12 +259,12 @@ jobs:
     needs: [deploy-web, deploy-admin, deploy-landing]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.target_sha }}
 
       - name: Health check all apps
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const apps = [
