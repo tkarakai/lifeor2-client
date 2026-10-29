@@ -17,7 +17,7 @@
     "@zxcvbn-ts/language-en": "^3.0.2",
     "@convex-dev/better-auth": "0.12.5",
     "@repo/i18n": "workspace:*",
-    "better-auth": "1.6.33",
+    "better-auth": "1.7.7",
     "convex": "1.31.7",
     "convex-helpers": "^0.1.111",
     "resend": "^4.0.0"
