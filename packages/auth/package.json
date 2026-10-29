@@ -12,7 +12,7 @@
   "dependencies": {
     "@better-auth/passkey": "1.6.33",
     "@convex-dev/better-auth": "0.12.5",
-    "better-auth": "1.6.33",
+    "better-auth": "1.7.7",
     "convex": "1.31.7"
   },
   "peerDependencies": {
