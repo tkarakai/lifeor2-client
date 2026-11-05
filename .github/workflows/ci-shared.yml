@@ -42,11 +42,11 @@ jobs:
 
       - name: Checkout
         if: ${{ !env.ACT }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Detect file changes
         if: ${{ !env.ACT }}
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         id: filter
         with:
           filters: |
@@ -67,7 +67,7 @@ jobs:
     name: Lint & Typecheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-bun
 
       - name: Test development process isolation
@@ -88,7 +88,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.root == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-bun
 
       - name: Run Convex tests
